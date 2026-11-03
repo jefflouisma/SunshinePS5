@@ -328,27 +328,27 @@ static sp5_result input_add(void *context, uint64_t session_id, uint32_t control
     /* A takeover handoff reuses the retiring host's already-assigned pad
      * handle. No AddDevice means the console never creates or prompts for a
      * new controller. */
+    /* A handle the driver rejects was removed outside this host; drop it and
+     * register a new pad rather than failing every later session. */
     if (input->external_handle >= 0) {
         sp5_ps5_neutral_report neutral;
         report_neutral(&neutral);
-        if (submit_report(input, input->external_handle, &neutral) != 0)
-            return failure(SP5_REASON_PLATFORM);
-        slot->handle = input->external_handle;
-        slot->session_id = session_id;
-        slot->live = true;
-        return sp5_success();
+        if (submit_report(input, input->external_handle, &neutral) == 0) {
+            slot->handle = input->external_handle;
+            slot->session_id = session_id;
+            slot->live = true;
+            return sp5_success();
+        }
+        input->external_handle = -1;
     }
 
     /* Reuse a pad parked by the previous session: the console never observes
      * a disconnect, so the running game keeps its controller assignment. */
-    int32_t reused = take_parked(input);
-    if (reused >= 0) {
+    for (int32_t reused = take_parked(input); reused >= 0; reused = take_parked(input)) {
         sp5_ps5_neutral_report neutral;
         report_neutral(&neutral);
-        if (submit_report(input, reused, &neutral) != 0) {
-            (void)park_handle(input, reused);
-            return failure(SP5_REASON_PLATFORM);
-        }
+        if (submit_report(input, reused, &neutral) != 0)
+            continue;
         slot->handle = reused;
         slot->session_id = session_id;
         slot->live = true;
@@ -539,6 +539,16 @@ void sp5_ps5_input_init(sp5_ps5_input *input)
     }
     input->parked_count = 0;
     input->external_handle = -1;
+}
+
+bool sp5_ps5_input_adopt(sp5_ps5_input *input, int hid, int32_t handle)
+{
+    if (input == NULL || hid < 0 || handle < 0 || input->hid >= 0)
+        return false;
+    if (!park_handle(input, handle))
+        return false;
+    input->hid = hid;
+    return true;
 }
 
 /* Keep a parked pad's kernel registration from timing out while no session is

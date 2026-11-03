@@ -1214,3 +1214,13 @@ Sources: local PS5 development-service operations runbook and CamShot helper;
 The RSP implementation is a conservative generic protocol diagnostic, not a
 claim that the installed PS5 gdbsrv has been verified. Local fixture evidence:
 `.omo/evidence/t050-live-callbacks-20261101/REPORT.md`.
+
+## Virtual pad census and descriptor handover (v0.1.1)
+
+`pad_census.c` lists registered virtual pads by sending a neutral report to each candidate
+handle, and can press a button on, or remove, one handle (build-time `-D` options in its
+header). `pad_fdpass.c` is the two-payload experiment showing that a pad survives its creator
+when the `/dev/hid` descriptor is passed with `SCM_RIGHTS` over an AF_UNIX socket in
+`/system_tmp`. Build each with the pinned SDK's `prospero-clang ... -lkernel` (plus
+`-lSceUserService -lScePad` for the interactive or creator variants) and keep outputs in scratch
+space. Results are in [the v0.1.1 validation record](../../docs/evidence/v0.1.1-validation.md).

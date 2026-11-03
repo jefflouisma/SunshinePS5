@@ -102,7 +102,10 @@ foreach(unit callbacks compress host list packet peer protocol unix)
     target_sources(enet PRIVATE "${SP5_ENET_SOURCE}/${unit}.c")
 endforeach()
 target_include_directories(enet PRIVATE "${SP5_ENET_SOURCE}/include")
-target_compile_options(enet PRIVATE -Wall -Wextra -Wpedantic -Werror)
+# Upstream protocol.c computes a header offset as &((ENetProtocolHeader *)0)->sentTime,
+# which UBSan's null check reports as member access through a null pointer. It is a
+# constant offset computation, so exempt only that check for this dependency.
+target_compile_options(enet PRIVATE -Wall -Wextra -Wpedantic -Werror -fno-sanitize=null)
 target_compile_definitions(enet PRIVATE _POSIX_C_SOURCE=200112L _DEFAULT_SOURCE=1
     _DARWIN_C_SOURCE=1 HAS_FCNTL=1 HAS_IOCTL=1 HAS_POLL=1 HAS_GETADDRINFO=1
     HAS_GETNAMEINFO=1 HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)

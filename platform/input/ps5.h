@@ -122,6 +122,12 @@ typedef struct {
 
 void sp5_ps5_input_init(sp5_ps5_input *input);
 void sp5_ps5_input_heartbeat(sp5_ps5_input *input);
+/* Take ownership of a pad handed over by a previous host: hid is that
+ * host's /dev/hid descriptor, which keeps the pad registered. The handle is
+ * parked, so it is reused by the next session and the descriptor stays open
+ * until this process exits or hands it on. Returns false on bad arguments or
+ * when a descriptor is already open. */
+bool sp5_ps5_input_adopt(sp5_ps5_input *input, int hid, int32_t handle);
 sp5_input_ops sp5_ps5_input_ops(sp5_ps5_input *input);
 
 #endif

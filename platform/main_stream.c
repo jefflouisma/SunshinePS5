@@ -79,6 +79,9 @@
 #define SP5_VERSION "dev"
 #endif
 #define SP5_HOST_VERSION "sunshineps5-" SP5_VERSION
+/* /system_tmp is the console path that accepts AF_UNIX sockets (/data and
+ * /user/temp refuse them); it is cleared on reboot. */
+#define TAKEOVER_SOCKET "/system_tmp/sunshineps5-takeover.sock"
 
 enum {
     CONNECTIONS = 8,
@@ -89,7 +92,7 @@ enum {
     VIDEO_PORT = 47998,
     AUDIO_PORT = 48000,
     CONTROL_PORT = 47999,
-    TAKEOVER_PORT = 47990,
+    LEGACY_TAKEOVER_PORT = 47990,
     PLAY_DEADLINE_US = 30000000,
     WEB_PORT_DEFAULT = 8081,
     RUN_SECONDS_DEFAULT = 0,
@@ -166,7 +169,11 @@ typedef struct {
     sp5_buffer video_buffer;
     int listeners[3];
     int video_socket, audio_socket;
+    /* Takeover listeners: the AF_UNIX socket hands the /dev/hid descriptor
+     * to the next host; the loopback TCP port serves v0.1.0 hosts. */
     int takeover_fd;
+    int legacy_takeover_fd;
+    bool legacy_handoff;
     /* Set when lifecycle_end failed; the main loop retries until it succeeds. */
     bool cleanup_pending;
     uint64_t cleanup_retry_us;
@@ -1541,13 +1548,20 @@ static void destroy_stream(stream_host *h)
     h->runtime = NULL;
     sp5_store_destroy(h->store);
     h->store = NULL;
+    /* Release the state-directory lock before the takeover listeners close:
+     * the next host treats a closed listener as "previous host gone" and
+     * opens storage immediately. */
+    if (h->storage != NULL)
+        (void)sp5_posix_storage_close(h->storage);
+    h->storage = NULL;
     if (h->takeover_fd >= 0) {
         (void)close(h->takeover_fd);
         h->takeover_fd = -1;
     }
-    if (h->storage != NULL)
-        (void)sp5_posix_storage_close(h->storage);
-    h->storage = NULL;
+    if (h->legacy_takeover_fd >= 0) {
+        (void)close(h->legacy_takeover_fd);
+        h->legacy_takeover_fd = -1;
+    }
 }
 
 static void takeover_sleep_ms(unsigned milliseconds)
@@ -1557,9 +1571,9 @@ static void takeover_sleep_ms(unsigned milliseconds)
     }
 }
 
-/* Reserve one neutral pad before asking the previous host to stop. The
- * previous pad is then removed while this replacement is already registered,
- * so a host restart cannot leave the console with zero controllers. */
+/* When the previous host had no pad to hand over, register and park one
+ * neutral pad so a host restart cannot leave the console with zero
+ * controllers. */
 static bool takeover_reserve_pad(stream_host *h)
 {
     const uint64_t session = UINT64_C(0x74616b656f766572);
@@ -1569,10 +1583,7 @@ static bool takeover_reserve_pad(stream_host *h)
     return ops.remove(ops.context, session, 0).status == SP5_OK;
 }
 
-/* Returns 1 when an old host was retired, 0 when none was present, -1 on a
- * takeover error. Connection success is the liveness check; a stale socket is
- * unlinked before this host creates its own. */
-static int takeover_connect(void)
+static int takeover_connect_legacy(void)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
@@ -1580,7 +1591,7 @@ static int takeover_connect(void)
     struct sockaddr_in address;
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
-    address.sin_port = htons(TAKEOVER_PORT);
+    address.sin_port = htons(LEGACY_TAKEOVER_PORT);
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (connect(fd, (const struct sockaddr *)&address, sizeof(address)) != 0) {
         (void)close(fd);
@@ -1589,44 +1600,174 @@ static int takeover_connect(void)
     return fd;
 }
 
-/* Returns 1 when an old host was retired, 0 when none was present, -1 on a
- * takeover error. A live loopback connection is the liveness check; a closed
- * takeover port becomes ECONNREFUSED after the old host exits. */
-static int takeover_retire_old(stream_host *h)
+static struct sockaddr_un takeover_address(void)
 {
-    int fd = takeover_connect();
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    (void)snprintf(address.sun_path, sizeof(address.sun_path), "%s", TAKEOVER_SOCKET);
+    return address;
+}
+
+/* A connection is the liveness check: a socket file left by an exited host
+ * refuses connections. */
+static int takeover_connect(void)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
-        return 0;
-    if (write(fd, "takeover", 8) != 8) {
+        return -1;
+    struct sockaddr_un address = takeover_address();
+    if (connect(fd, (const struct sockaddr *)&address, sizeof(address)) != 0) {
         (void)close(fd);
         return -1;
     }
-    char response[32] = {0};
-    ssize_t response_size = read(fd, response, sizeof(response) - 1);
-    (void)close(fd);
-    int reused = -1;
-    if (response_size > 0 && sscanf(response, "h=%d", &reused) == 1 && reused >= 0) {
-        h->input_adapter.external_handle = (int32_t)reused;
+    return fd;
+}
+
+/* Sends "h=N" and, when this host has /dev/hid open, the descriptor itself.
+ * The pad's registration belongs to the open file, not the process, so it
+ * stays registered after this host exits as long as the receiver holds it. */
+static bool takeover_send(int fd, int32_t handle, int hid)
+{
+    char text[32];
+    int length = snprintf(text, sizeof(text), "h=%d\n", (int)handle);
+    if (length <= 0)
+        return false;
+    struct iovec payload = {text, (size_t)length};
+    struct msghdr message;
+    memset(&message, 0, sizeof(message));
+    message.msg_iov = &payload;
+    message.msg_iovlen = 1;
+    char control[CMSG_SPACE(sizeof(int))];
+    memset(control, 0, sizeof(control));
+    if (hid >= 0) {
+        message.msg_control = control;
+        message.msg_controllen = sizeof(control);
+        struct cmsghdr *header = CMSG_FIRSTHDR(&message);
+        header->cmsg_level = SOL_SOCKET;
+        header->cmsg_type = SCM_RIGHTS;
+        header->cmsg_len = CMSG_LEN(sizeof(int));
+        memcpy(CMSG_DATA(header), &hid, sizeof(int));
     }
-    (void)emit("{\"event\":\"takeover\",\"synthetic\":false,\"diagnostic\":true,"
-               "\"reused_handle\":%d}\n",
-               reused);
+    return sendmsg(fd, &message, 0) == (ssize_t)length;
+}
+
+/* Receives the reply of takeover_send. Returns the handle (or -1) and stores
+ * a received descriptor in *hid. */
+static int32_t takeover_receive(int fd, int *hid)
+{
+    *hid = -1;
+    char text[32] = {0};
+    struct iovec payload = {text, sizeof(text) - 1};
+    struct msghdr message;
+    memset(&message, 0, sizeof(message));
+    message.msg_iov = &payload;
+    message.msg_iovlen = 1;
+    char control[CMSG_SPACE(sizeof(int))];
+    memset(control, 0, sizeof(control));
+    message.msg_control = control;
+    message.msg_controllen = sizeof(control);
+    ssize_t count = recvmsg(fd, &message, 0);
+    if (count <= 0)
+        return -1;
+    for (struct cmsghdr *header = CMSG_FIRSTHDR(&message); header != NULL;
+         header = CMSG_NXTHDR(&message, header)) {
+        if (header->cmsg_level == SOL_SOCKET && header->cmsg_type == SCM_RIGHTS &&
+            header->cmsg_len >= CMSG_LEN(sizeof(int)))
+            memcpy(hid, CMSG_DATA(header), sizeof(int));
+    }
+    int handle = -1;
+    if (sscanf(text, "h=%d", &handle) != 1 || handle < 0)
+        return -1;
+    return (int32_t)handle;
+}
+
+static bool takeover_wait_gone(int (*connect_old)(void))
+{
     for (unsigned attempt = 0; attempt < 400; ++attempt) {
         takeover_sleep_ms(50);
-        int probe = takeover_connect();
-        if (probe < 0) {
-            if (reused >= 0)
-                return 1;
-            return takeover_reserve_pad(h) ? 1 : -1;
-        }
+        int probe = connect_old();
+        if (probe < 0)
+            return true;
         (void)close(probe);
     }
-    return -1;
+    return false;
+}
+
+/* Returns 1 when an old host was retired, 0 when none was present, -1 on a
+ * takeover error. The previous host passes its pad handle and /dev/hid
+ * descriptor, then exits completely; this host now owns the pad, so the
+ * console never sees a disconnect or a new controller. A v0.1.0 host only
+ * returns the handle and keeps its descriptor in a resident holder. */
+static int takeover_retire_old(stream_host *h)
+{
+    int32_t reused = -1;
+    int hid = -1;
+    bool legacy = false;
+    int fd = takeover_connect();
+    if (fd >= 0) {
+        if (write(fd, "takeover", 8) != 8) {
+            (void)close(fd);
+            return -1;
+        }
+        reused = takeover_receive(fd, &hid);
+        (void)close(fd);
+    } else {
+        fd = takeover_connect_legacy();
+        if (fd < 0)
+            return 0;
+        legacy = true;
+        if (write(fd, "takeover", 8) != 8) {
+            (void)close(fd);
+            return -1;
+        }
+        char response[32] = {0};
+        ssize_t response_size = read(fd, response, sizeof(response) - 1);
+        (void)close(fd);
+        int value = -1;
+        if (response_size > 0 && sscanf(response, "h=%d", &value) == 1 && value >= 0)
+            reused = (int32_t)value;
+    }
+    if (hid >= 0 && reused < 0) {
+        (void)close(hid);
+        hid = -1;
+    }
+    if (reused >= 0 && hid >= 0) {
+        if (!sp5_ps5_input_adopt(&h->input_adapter, hid, reused)) {
+            (void)close(hid);
+            hid = -1;
+        }
+    }
+    /* Without the descriptor (a v0.1.0 host) the pad stays owned by its
+     * resident holder; this host only reports on the borrowed handle. */
+    if (reused >= 0 && hid < 0)
+        h->input_adapter.external_handle = reused;
+    (void)emit("{\"event\":\"takeover\",\"synthetic\":false,\"diagnostic\":true,"
+               "\"reused_handle\":%d,\"descriptor_received\":%s,\"legacy\":%s}\n",
+               (int)reused, hid >= 0 ? "true" : "false", legacy ? "true" : "false");
+    if (!takeover_wait_gone(legacy ? takeover_connect_legacy : takeover_connect))
+        return -1;
+    if (reused >= 0)
+        return 1;
+    return takeover_reserve_pad(h) ? 1 : -1;
 }
 
 static int takeover_listen(stream_host *h)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    /* Only reached after any previous host has exited, so a socket file
+     * still present is stale. */
+    (void)unlink(TAKEOVER_SOCKET);
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+    struct sockaddr_un local = takeover_address();
+    if (bind(fd, (const struct sockaddr *)&local, sizeof(local)) != 0 || listen(fd, 4) != 0) {
+        (void)close(fd);
+        return -1;
+    }
+    h->takeover_fd = fd;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0)
         return -1;
     int reuse = 1;
@@ -1634,51 +1775,57 @@ static int takeover_listen(stream_host *h)
     struct sockaddr_in address;
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
-    address.sin_port = htons(TAKEOVER_PORT);
+    address.sin_port = htons(LEGACY_TAKEOVER_PORT);
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (bind(fd, (const struct sockaddr *)&address, sizeof(address)) != 0 || listen(fd, 4) != 0) {
         (void)close(fd);
         return -1;
     }
-    h->takeover_fd = fd;
+    h->legacy_takeover_fd = fd;
     return 0;
 }
 
-static void takeover_accept(stream_host *h, bool *stop, const char **reason)
+static int32_t takeover_handle(const stream_host *h)
 {
-    int client = accept(h->takeover_fd, NULL, NULL);
+    for (size_t i = 0; i < SP5_PS5_INPUT_HID_MAX; ++i) {
+        if (h->input_adapter.controllers[i].live)
+            return h->input_adapter.controllers[i].handle;
+    }
+    for (size_t i = 0; i < SP5_PS5_INPUT_HID_MAX; ++i) {
+        if (h->input_adapter.parked[i] >= 0)
+            return h->input_adapter.parked[i];
+    }
+    /* A host that borrowed its handle but never added a controller (e.g. an
+     * official client without a gamepad) must still pass it on; otherwise
+     * the next host creates a second, unassigned pad. */
+    return h->input_adapter.external_handle;
+}
+
+static void takeover_accept(stream_host *h, bool legacy, bool *stop, const char **reason)
+{
+    int client = accept(legacy ? h->legacy_takeover_fd : h->takeover_fd, NULL, NULL);
     if (client < 0)
         return;
-    /* Bound the read so an idle loopback client cannot stall the host loop. */
+    /* Bound the read so an idle local client cannot stall the host loop. */
     struct timeval timeout = {.tv_sec = 0, .tv_usec = 200000};
     (void)setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    (void)setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
     char command[16];
     ssize_t count = read(client, command, sizeof(command));
     if (count == 8 && memcmp(command, "takeover", 8) == 0) {
-        int32_t handle = -1;
-        for (size_t i = 0; i < SP5_PS5_INPUT_HID_MAX; ++i) {
-            if (h->input_adapter.controllers[i].live) {
-                handle = h->input_adapter.controllers[i].handle;
-                break;
-            }
+        int32_t handle = takeover_handle(h);
+        bool sent;
+        if (legacy) {
+            char response[32];
+            int length = snprintf(response, sizeof(response), "h=%d\n", (int)handle);
+            sent = length > 0 && write(client, response, (size_t)length) == length;
+            h->legacy_handoff = sent;
+        } else {
+            sent = takeover_send(client, handle, handle >= 0 ? h->input_adapter.hid : -1);
         }
-        if (handle < 0) {
-            for (size_t i = 0; i < SP5_PS5_INPUT_HID_MAX; ++i) {
-                if (h->input_adapter.parked[i] >= 0) {
-                    handle = h->input_adapter.parked[i];
-                    break;
-                }
-            }
-        }
-        /* A host that borrowed its handle but never added a controller (e.g.
-         * an official client without a gamepad) must still pass it on;
-         * otherwise the next host creates a second, unassigned pad. */
-        if (handle < 0)
-            handle = h->input_adapter.external_handle;
-        char response[32];
-        int length = snprintf(response, sizeof(response), "h=%d\n", (int)handle);
-        if (length > 0)
-            (void)write(client, response, (size_t)length);
+        (void)emit("{\"event\":\"takeover_served\",\"synthetic\":false,\"diagnostic\":true,"
+                   "\"handle\":%d,\"legacy\":%s,\"sent\":%s}\n",
+                   (int)handle, legacy ? "true" : "false", sent ? "true" : "false");
         *stop = true;
         *reason = "takeover";
         if (h->running)
@@ -1694,6 +1841,7 @@ static int start_stream(stream_host *h)
     h->video_socket = -1;
     h->audio_socket = -1;
     h->takeover_fd = -1;
+    h->legacy_takeover_fd = -1;
     sp5_console_web_init(&h->web_service, NULL, -1);
 
     /* The previous host holds the exclusive state-directory flock until it
@@ -1979,14 +2127,15 @@ int main(int argc, char **argv)
         }
         if (stop && !h->running)
             break;
-        struct pollfd polls[5 + SP5_CONSOLE_WEB_POLLS] = {
+        struct pollfd polls[6 + SP5_CONSOLE_WEB_POLLS] = {
             {watch_stdin ? STDIN_FILENO : -1, POLLIN, 0},
             {h->listeners[0], POLLIN, 0},
             {h->listeners[1], POLLIN, 0},
             {h->listeners[2], POLLIN, 0},
-            {h->takeover_fd, POLLIN, 0}};
-        sp5_console_web_poll(&h->web_service, polls + 5);
-        int ready = poll(polls, 5 + SP5_CONSOLE_WEB_POLLS, 1);
+            {h->takeover_fd, POLLIN, 0},
+            {h->legacy_takeover_fd, POLLIN, 0}};
+        sp5_console_web_poll(&h->web_service, polls + 6);
+        int ready = poll(polls, 6 + SP5_CONSOLE_WEB_POLLS, 1);
         if (ready < 0 && errno != EINTR) {
             /* Fatal host errors stop through the normal path: the loop exits
              * only after the stream's worker threads are joined. */
@@ -1998,8 +2147,10 @@ int main(int argc, char **argv)
             pause_step();
             continue;
         }
-        if (ready > 0 && (polls[4].revents & POLLIN) != 0)
-            takeover_accept(h, &stop, &reason);
+        if (ready > 0 && !stop && (polls[4].revents & POLLIN) != 0)
+            takeover_accept(h, false, &stop, &reason);
+        if (ready > 0 && !stop && (polls[5].revents & POLLIN) != 0)
+            takeover_accept(h, true, &stop, &reason);
         if (ready > 0 && (polls[0].revents & (POLLHUP | POLLERR | POLLNVAL)) != 0)
             watch_stdin = false;
         if (ready > 0 && (polls[0].revents & POLLIN) != 0) {
@@ -2044,7 +2195,7 @@ int main(int argc, char **argv)
                     close_connection(&connections[i]); /* never replay a failed request */
             }
         }
-        sp5_console_web_step(&h->web_service, polls + 5, now_us());
+        sp5_console_web_step(&h->web_service, polls + 6, now_us());
         if (h->web_service.failed && !stop) {
             status = 1;
             reason = "web";
@@ -2080,13 +2231,13 @@ int main(int argc, char **argv)
                (unsigned long long)atomic_load(&h->video_count),
                (unsigned long long)atomic_load(&h->audio_count));
     destroy_stream(h);
-    bool hold_pad = strcmp(reason, "takeover") == 0 && h->input_adapter.external_handle < 0 &&
+    bool hold_pad = h->legacy_handoff && h->input_adapter.external_handle < 0 &&
                     h->input_adapter.parked_count > 0;
     free(h);
     if (hold_pad) {
-        /* The creator keeps the /dev/hid fd and the assigned pad handle open
-         * after its network role ends. Later hosts reuse that handle, so a
-         * restart never creates an unassigned replacement controller. */
+        /* Only a v0.1.0 successor cannot receive the descriptor: keep it and
+         * the assigned pad open so that host can reuse the handle. Current
+         * successors receive the descriptor and this host exits. */
         for (;;)
             pause();
     }

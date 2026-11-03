@@ -121,7 +121,14 @@ target_link_libraries(test_metrics PRIVATE Threads::Threads)
 sunshine_add_unit_test(test_settings unit/test_settings.c ../platform/system/storage.c)
 target_compile_definitions(test_settings PRIVATE
     _POSIX_C_SOURCE=200809L _DARWIN_C_SOURCE SP5_STORAGE_TEST)
-set_tests_properties(test_settings PROPERTIES ENVIRONMENT "TMPDIR=$ENV{TMPDIR}")
+# TMPDIR is captured at configure time; CI jobs that do not export it fall
+# back to the build tree instead of the filesystem root.
+if(DEFINED ENV{TMPDIR} AND NOT "$ENV{TMPDIR}" STREQUAL "")
+  set(SP5_TEST_TMPDIR "$ENV{TMPDIR}")
+else()
+  set(SP5_TEST_TMPDIR "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
+set_tests_properties(test_settings PROPERTIES ENVIRONMENT "TMPDIR=${SP5_TEST_TMPDIR}")
 set_tests_properties(test_lifecycle.durability test_lifecycle.recovery PROPERTIES LABELS "unit")
 add_dependencies(check test_lifecycle)
 

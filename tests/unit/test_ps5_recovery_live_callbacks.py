@@ -235,6 +235,10 @@ def test_fresh_camera_requires_classifier(monkeypatch, tmp_path, stale, classifi
         if not stale:
             replacement = tmp_path / "replacement"
             replacement.write_bytes(camera.read_bytes())
+            # Linux stamps mtimes from a coarse clock that can trail
+            # time.time_ns(); a real capture lands well after the request.
+            written = L.time.time_ns() + 1_000_000
+            os.utime(replacement, ns=(written, written))
             os.replace(replacement, camera)
         return b"fixture CamShot", b"ok\ndevice=Elgato 4K X\n"
 

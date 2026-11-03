@@ -5,10 +5,10 @@ SunshinePS5 is a PS5 homebrew payload that turns a jailbroken PlayStation 5 into
 GameStream/Sunshine protocol, so the **official, unmodified Moonlight client** can pair with the
 console, stream its screen and audio, and drive it with a controller.
 
-> **Status: v0.1.0 MVP.** One streaming configuration is supported and has been validated on real
+> **Status: v0.1.1 MVP.** One streaming configuration is supported and has been validated on real
 > hardware. Read [Scope and limitations](#scope-and-limitations) before using it.
 
-## What works in v0.1.0
+## What works in v0.1.1
 
 | Area | Supported |
 |---|---|
@@ -22,7 +22,8 @@ console, stream its screen and audio, and drive it with a controller.
 
 Measured on the development console with the official client over a wired link: 59.98 fps
 received and decoded, 0.00% network frame drops, 0.1 ms host processing latency, about 1 ms
-network latency ([validation record](docs/evidence/v0.1.0-validation.md)). Earlier diagnostic
+network latency ([v0.1.0 record](docs/evidence/v0.1.0-validation.md),
+[v0.1.1 record](docs/evidence/v0.1.1-validation.md)). Earlier diagnostic
 builds also ran 30-minute and two-hour sessions with at most 0.013% host-to-client frame loss
 and flat memory use.
 
@@ -37,11 +38,11 @@ and flat memory use.
 
 ## Install and run
 
-1. Download `sunshineps5-0.1.0.tar.gz` from the release page and verify it:
+1. Download `sunshineps5-0.1.1.tar.gz` from the release page and verify it:
 
    ```sh
-   shasum -a 256 -c sunshineps5-0.1.0.tar.gz.sha256
-   tar -xzf sunshineps5-0.1.0.tar.gz && cd sunshineps5-0.1.0
+   shasum -a 256 -c sunshineps5-0.1.1.tar.gz.sha256
+   tar -xzf sunshineps5-0.1.1.tar.gz && cd sunshineps5-0.1.1
    shasum -a 256 -c sunshineps5.elf.sha256
    ```
 
@@ -92,11 +93,12 @@ These are deliberate MVP boundaries, not bugs:
   state, so the host assumes content may be captured. Do not use it to capture content you are not
   entitled to; the console may black out protected video regardless.
 - **Firmware 13.60 only.** Other firmware is refused at startup.
-- **Leave the host running.** The host keeps the virtual controller registered between sessions.
-  Sending a newer build hands the controller over to it. Killing the host process from a shell
-  while a game is running can make the console report a disconnected controller, and killing
-  the original controller holder has crashed the console in testing; reboot the console to start
-  clean.
+- **Leave the host running.** The host keeps one virtual controller registered between
+  sessions. Sending a newer build hands that controller to the new host, and the old host exits;
+  nothing stays behind. Killing the host from a shell instead removes the controller: the console
+  reports it disconnected. If the console's *"Who's using this controller?"* prompt belonged to a
+  controller that was removed, in testing the prompt stayed on screen and the console refused
+  every other controller until it was rebooted. Answer the prompt before stopping the host.
 - **Private networks only, no login.** Anyone on the private network can open the web page and
   submit a PIN while Moonlight is showing one. Do not expose the console to the internet.
 
