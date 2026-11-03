@@ -232,8 +232,12 @@ def read_runner_binding(path, collector_binding):
                 break
             data.extend(part)
         after = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+        # Timestamps can miss a same-size rewrite within one coarse clock tick
+        # (Linux), so compare the bytes themselves as well.
+        reread = os.pread(fd, MAX_BINDING_BYTES + 1, 0)
         if (
             len(data) != opened.st_size
+            or reread != data
             or len(data) > MAX_BINDING_BYTES
             or file_identity(opened) != file_identity(os.fstat(fd))
             or file_identity(opened) != file_identity(after)
