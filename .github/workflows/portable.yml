@@ -106,12 +106,24 @@ jobs:
               raise SystemExit("Unexpected bundled Opus version")
           print("bundled libopus 1.6.1; audiopus_sys absent")
           PYTHON
+      # ffmpeg.org intermittently resets connections from hosted runners. The
+      # archive is cached by its pinned digest and still verified below.
+      - name: Cached FFmpeg 8.0.1 source archive
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/ffmpeg-archive
+          key: ffmpeg-8.0.1-05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41
       - name: Verified FFmpeg 8.0.1 for native SDR/HDR fixture tests
         run: |
           mkdir "$TMPDIR/ffmpeg-source"
-          curl --fail --location --proto '=https' --tlsv1.2 \
-            https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz \
-            -o "$TMPDIR/ffmpeg-source/ffmpeg-8.0.1.tar.xz"
+          archive_cache="$RUNNER_TEMP/ffmpeg-archive/ffmpeg-8.0.1.tar.xz"
+          if [ ! -s "$archive_cache" ]; then
+            mkdir -p "$(dirname "$archive_cache")"
+            curl --fail --location --proto '=https' --tlsv1.2 \
+              --retry 6 --retry-delay 20 --retry-all-errors --connect-timeout 30 \
+              https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz -o "$archive_cache"
+          fi
+          cp "$archive_cache" "$TMPDIR/ffmpeg-source/ffmpeg-8.0.1.tar.xz"
           python - "$TMPDIR/ffmpeg-source" <<'PYTHON'
           import hashlib
           import sys

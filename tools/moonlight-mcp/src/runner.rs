@@ -3505,8 +3505,14 @@ print(json.dumps({'finish_reason':reason,'bounded':True}))
                     report: &mut r,
                 },
                 &mut cancel,
+                // Only the timeout case should expire; the others must not
+                // race a slow runner's concurrent publication.
                 ObserverWait {
-                    timeout: Duration::from_millis(40),
+                    timeout: if case == "timeout" {
+                        Duration::from_millis(40)
+                    } else {
+                        Duration::from_secs(5)
+                    },
                     poll_interval: Duration::from_millis(5),
                 },
                 || {
