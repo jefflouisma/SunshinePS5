@@ -1,4 +1,11 @@
-Checks: 'clang-analyzer-*,bugprone-*,cert-*,performance-*,portability-*'
+# DeprecatedOrUnsafeBufferHandling asks for C11 Annex K (memcpy_s, ...), which
+# neither glibc, macOS nor the PS5 libc provide; it only fires on some hosts.
+Checks: 'clang-analyzer-*,bugprone-*,cert-*,performance-*,portability-*,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling'
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*'
 FormatStyle: file
+CheckOptions:
+  # Feature-test macros must be defined by the program before any include.
+  bugprone-reserved-identifier.AllowedIdentifiers: '_POSIX_C_SOURCE;_DEFAULT_SOURCE;_GNU_SOURCE;_DARWIN_C_SOURCE'
+  cert-dcl37-c.AllowedIdentifiers: '_POSIX_C_SOURCE;_DEFAULT_SOURCE;_GNU_SOURCE;_DARWIN_C_SOURCE'
+  cert-dcl51-cpp.AllowedIdentifiers: '_POSIX_C_SOURCE;_DEFAULT_SOURCE;_GNU_SOURCE;_DARWIN_C_SOURCE'

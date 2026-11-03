@@ -9,7 +9,9 @@
 
 bool sp5_web_equal(sp5_bytes value, const char *text)
 {
-    return value.size == strlen(text) && memcmp(value.data, text, value.size) == 0;
+    /* An empty value may carry a NULL pointer; memcmp requires a valid one. */
+    return value.size == strlen(text) &&
+           (value.size == 0 || memcmp(value.data, text, value.size) == 0);
 }
 bool sp5_web_error(sp5_web_response *r, unsigned status, const char *code, const char *message,
                    const char *recovery, uint64_t id)

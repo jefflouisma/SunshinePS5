@@ -28,7 +28,8 @@ sp5_result sp5_record_pack(sp5_store_file kind, sp5_bytes payload, sp5_buffer *r
     record->size = 0;
     uint8_t *data = record->data;
     memmove(data + 12, payload.data, payload.size);
-    memcpy(data, "SP5REC1", 7);
+    static const uint8_t magic[7] = {'S', 'P', '5', 'R', 'E', 'C', '1'};
+    memcpy(data, magic, sizeof(magic));
     data[7] = (uint8_t)kind;
     for (unsigned i = 0; i < 4; ++i) {
         data[8 + i] = (uint8_t)(payload.size >> (24 - 8 * i));
