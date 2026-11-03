@@ -3054,8 +3054,10 @@ mod tests {
             let (succeeded, deadline) = cancel_with_observer_signal(
                 cancellation,
                 Duration::from_millis(20),
+                // Only the returned deadline uses this; it is long enough that
+                // a slow runner still observes it in the future on success.
                 ObserverWait {
-                    timeout: Duration::from_millis(40),
+                    timeout: Duration::from_secs(5),
                     poll_interval: Duration::from_millis(1),
                 },
                 Some(signal),
