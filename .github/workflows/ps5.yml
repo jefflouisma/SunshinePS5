@@ -23,7 +23,7 @@ env:
 jobs:
   build:
     name: Pinned target and portable host
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04  # libtinfo5 for the pinned LLVM 18.1.8 binaries
     timeout-minutes: 60
     defaults:
       run:

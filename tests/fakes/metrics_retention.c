@@ -2,6 +2,7 @@
 #include "platform.h"
 #include "web/metrics.h"
 #include <pthread.h>
+#include <sched.h>
 #include <stdio.h>
 #include <string.h>
 #define CHECK(c)                                                                                   \
@@ -102,6 +103,13 @@ int main(void)
                               .observed_us = second * 1000000,
                               .duration_us = {100, 100, 100, 100, 500},
                               .flags = SP5_FRAME_ALL_VALID};
+        /* Readers may hold the state lock, making worker steps WOULD_BLOCK;
+         * drain the queue first so a scheduling run cannot fill it. */
+        sp5_result drained;
+        while ((drained = sp5_metrics_web_worker_step(&web, second * 1000000)).reason ==
+               SP5_REASON_WOULD_BLOCK)
+            sched_yield();
+        CHECK(drained.status == SP5_OK);
         CHECK(sp5_metrics_push_frame(m, &f).status == SP5_OK);
         sp5_result result = sp5_metrics_web_worker_step(&web, second * 1000000);
         CHECK(result.status == SP5_OK || result.reason == SP5_REASON_WOULD_BLOCK);

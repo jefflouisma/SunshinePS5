@@ -134,12 +134,17 @@ def test_discovery_rejects_standby_malformed_duplicate(text):
         recovery.discovery_ready(text)
 
 
+# Local hardware evidence is not published with the repository.
+HISTORICAL_INVENTORY = (
+    ROOT / ".omo/evidence/t050-rest-device-20261031/postinit-inventory.json"
+)
+
+
+@pytest.mark.skipif(
+    not HISTORICAL_INVENTORY.is_file(), reason="local console evidence absent"
+)
 def test_inspection_historical_inventory_cannot_arm(coordinator, bundle):
-    bundle["inventory"] = json.loads(
-        (
-            ROOT / ".omo/evidence/t050-rest-device-20261031/postinit-inventory.json"
-        ).read_text()
-    )
+    bundle["inventory"] = json.loads(HISTORICAL_INVENTORY.read_text())
     with pytest.raises(recovery.Refused):
         coordinator.verify(bundle, lambda *_: pytest.fail("dispatched"), armed=True)
 
@@ -314,6 +319,10 @@ def test_duplicate_json_keys_rejected(tmp_path):
         recovery.read_json(path)
 
 
+@pytest.mark.skipif(
+    not all(path.is_file() for path, _ in recovery.ARTIFACTS.values()),
+    reason="local console evidence absent",
+)
 def test_pinned_actual_artifacts_match_reviewed_hashes():
     for path, expected in recovery.ARTIFACTS.values():
         assert (
