@@ -223,6 +223,9 @@ def main():
         )
         statuses.append({"log": name, "exit": result.returncode})
         print(name, result.returncode, flush=True)
+        if result.returncode != 0:
+            # The evidence directory is not uploaded; show why in the job log.
+            print((result.stdout + result.stderr)[-6000:], flush=True)
     bridge = attempt / "python-collector"
     try:
         observable = json.loads((bridge / "observable.json").read_bytes())
