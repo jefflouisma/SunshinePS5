@@ -136,7 +136,7 @@ static int directory_fd(const char *path)
 {
     char copy[512];
     REQUIRE(strlen(path) < sizeof(copy) && path[0] == '/');
-    strcpy(copy, path);
+    memcpy(copy, path, strlen(path) + 1);
     int fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     REQUIRE(fd >= 0);
     char *save = NULL;
@@ -312,7 +312,7 @@ static bool missing_file_preflight(const char *path)
 {
     char parent[512], relative[512], absolute[512];
     REQUIRE(strlen(path) < sizeof(parent));
-    strcpy(parent, path);
+    memcpy(parent, path, strlen(path) + 1);
     char *leaf = strrchr(parent, '/');
     REQUIRE(leaf != NULL && leaf[1] != 0);
     *leaf++ = 0;
@@ -373,7 +373,7 @@ static void create_directory(const char *path)
 {
     char parent[512];
     REQUIRE(strlen(path) < sizeof(parent));
-    strcpy(parent, path);
+    memcpy(parent, path, strlen(path) + 1);
     char *leaf = strrchr(parent, '/');
     REQUIRE(leaf != NULL && leaf[1] != 0);
     *leaf++ = 0;
@@ -448,7 +448,7 @@ static void cleanup(const char *path, unsigned partial)
     }
     char parent[512];
     REQUIRE(strlen(path) < sizeof(parent));
-    strcpy(parent, path);
+    memcpy(parent, path, strlen(path) + 1);
     char *leaf = strrchr(parent, '/');
     REQUIRE(leaf != NULL && leaf[1] != 0);
     *leaf++ = 0;
@@ -810,14 +810,14 @@ int main(int argc, char **argv)
     sp5_settings settings = sp5_store_settings(store);
     if (init) {
         REQUIRE(view.paired_count == 0);
-        strcpy(settings.host_name, "T050 stored name");
+        (void)snprintf(settings.host_name, sizeof(settings.host_name), "T050 stored name");
         settings.metrics_enabled = true;
         REQUIRE(sp5_store_save_settings(store, &settings).status == SP5_OK);
         REQUIRE(sp5_store_pair(store, client_bytes(), 1793404800000000ULL).status == SP5_OK);
     } else {
         REQUIRE(strcmp(settings.host_name, "T050 stored name") == 0 && settings.metrics_enabled);
         REQUIRE(view.paired_count == 1 && sp5_store_authorized(store, client_bytes()));
-        strcpy(settings.host_name, "T050 replacement name");
+        (void)snprintf(settings.host_name, sizeof(settings.host_name), "T050 replacement name");
         settings.metrics_enabled = false;
         REQUIRE(sp5_store_save_settings(store, &settings).status == SP5_OK);
     }

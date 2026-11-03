@@ -185,7 +185,7 @@ static int open_chain(const char *path, struct root_chain *chain)
     char copy[512];
     if (*path != '/' || strlen(path) >= sizeof(copy))
         return -1;
-    strcpy(copy, path + 1);
+    memcpy(copy, path + 1, strlen(path));
     int fd = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
     if (fd < 0)
         return -1;
@@ -204,7 +204,7 @@ static int open_chain(const char *path, struct root_chain *chain)
             return -1;
         size_t index = chain->count++;
         chain->fds[index] = next;
-        strcpy(chain->names[index], part);
+        memcpy(chain->names[index], part, strlen(part) + 1);
         if (fstat(next, &chain->identities[index]) || !identity(&named, &chain->identities[index]))
             return -1;
         fd = next;
