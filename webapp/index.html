@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SunshinePS5</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header><p class="eyebrow">LOCAL HOST MANAGEMENT</p><h1>SunshinePS5</h1></header>
+    <main>
+      <section id="status" aria-label="Host status" aria-live="polite">Connecting…</section>
+      <p id="feedback" role="status" tabindex="-1"></p>
+      <nav aria-label="Management">
+        <button type="button" id="home-button">Home</button>
+        <button type="button" id="devices-button">Paired devices</button>
+        <button type="button" id="settings-button">Host settings</button>
+      </nav>
+      <section id="home" aria-label="Home controls">
+        <div id="pairing">
+          <h2>Pair a device</h2><p id="pairing-state">Checking pairing availability…</p>
+          <form id="pin-form" hidden>
+            <label for="pin">Four-digit PIN</label><input id="pin" name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required autocomplete="off" />
+            <label for="pair-name">Device name (optional)</label><input id="pair-name" name="device_name" maxlength="63" aria-describedby="pair-name-hint" /><p id="pair-name-hint">Leave blank to name it “Moonlight device”. You can rename it later.</p>
+            <button type="submit">Submit PIN</button>
+          </form>
+        </div>
+        <button type="button" id="stop-button" class="danger">Stop host</button>
+        <section id="metrics-control" aria-label="Performance metrics"><h2>Performance metrics</h2><p>Metrics controls are unavailable.</p></section>
+        <section id="metrics-view" aria-label="Performance details"></section>
+        <section id="diagnostics" aria-label="Diagnostics"></section>
+      </section>
+      <section id="devices" aria-label="Paired devices" hidden></section>
+      <section id="settings" aria-label="Host settings" hidden>
+        <h2>Host settings</h2>
+        <form id="settings-form"><label for="host-name">Host name</label><input id="host-name" maxlength="63" required /><p>1–63 characters and up to 63 UTF-8 bytes. Changes appear on the next Moonlight refresh.</p><button type="submit">Save host name</button></form>
+      </section>
+    </main>
+    <dialog id="confirmation" aria-labelledby="confirm-title"><h2 id="confirm-title">Confirm action</h2><p id="confirm-description"></p><div class="actions"><button type="button" id="confirm-cancel">Cancel</button><button type="button" id="confirm-action" class="danger">Confirm</button></div></dialog>
+    <footer>Management stays on your private network.</footer>
+  </body>
+</html>

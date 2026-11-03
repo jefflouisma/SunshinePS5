@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0.0",
+  "id": "ps5-diagnostic-sdr",
+  "host": "192.168.2.2",
+  "pairing": {
+    "pin_delivery": "already_paired"
+  },
+  "requested": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "bitrate_kbps": 20000,
+    "codec": "h264",
+    "dynamic_range": "sdr"
+  },
+  "duration_seconds": 10,
+  "controllers": [
+    {
+      "id": 0,
+      "actions": [
+        {
+          "event_id": "connect",
+          "at_seconds": 0.1,
+          "type": "connect"
+        },
+        {
+          "event_id": "cross-down",
+          "at_seconds": 0.3,
+          "type": "button",
+          "button": "cross",
+          "pressed": true
+        },
+        {
+          "event_id": "stick",
+          "at_seconds": 0.6,
+          "type": "stick",
+          "stick": "left",
+          "x": 0.25,
+          "y": -0.5
+        },
+        {
+          "event_id": "trigger",
+          "at_seconds": 0.9,
+          "type": "trigger",
+          "trigger": "right",
+          "value": 0.75
+        },
+        {
+          "event_id": "cross-up",
+          "at_seconds": 1.4,
+          "type": "button",
+          "button": "cross",
+          "pressed": false
+        },
+        {
+          "event_id": "held-for-cleanup",
+          "at_seconds": 1.8,
+          "type": "button",
+          "button": "cross",
+          "pressed": true
+        }
+      ]
+    }
+  ],
+  "reference": {
+    "required": false,
+    "calibration_reason": "Diagnostic console SDR run with unsourced protection CLEAR; not acceptance evidence"
+  },
+  "required_criteria": {
+    "profile_id": "reference_host_compatibility",
+    "profile_version": "1.0.0",
+    "ids": [
+      "REF-pairing",
+      "REF-stream",
+      "REF-controller",
+      "REF-teardown",
+      "REF-recording",
+      "REF-report"
+    ]
+  },
+  "evidence": {
+    "host_metrics": false,
+    "input_delivery": false,
+    "reference_recording": false,
+    "official_client_observations": false,
+    "operator_observations": false
+  },
+  "output_dir": "ps5-diagnostic-sdr",
+  "write_policy": {
+    "max_bytes": 67108864,
+    "max_files": 128,
+    "on_limit": "incomplete"
+  }
+}

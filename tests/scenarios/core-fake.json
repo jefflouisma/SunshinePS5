@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "id": "core-fake-sdr",
+  "host": "fixture.invalid",
+  "pairing": {"pin_delivery": "already_paired"},
+  "requested": {
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "bitrate_kbps": 25000,
+    "codec": "h264",
+    "dynamic_range": "sdr"
+  },
+  "duration_seconds": 3,
+  "controllers": [
+    {
+      "id": 0,
+      "actions": [
+        {"event_id": "connect", "at_seconds": 0.1, "type": "connect"},
+        {"event_id": "cross-down", "at_seconds": 0.3, "type": "button", "button": "cross", "pressed": true},
+        {"event_id": "stick", "at_seconds": 0.6, "type": "stick", "stick": "left", "x": 0.25, "y": -0.5},
+        {"event_id": "trigger", "at_seconds": 0.9, "type": "trigger", "trigger": "right", "value": 0.75},
+        {"event_id": "cross-up", "at_seconds": 1.4, "type": "button", "button": "cross", "pressed": false},
+        {"event_id": "held-for-cleanup", "at_seconds": 1.8, "type": "button", "button": "cross", "pressed": true}
+      ]
+    }
+  ],
+  "reference": {"required": false, "calibration_reason": "Portable synthetic fixtures; no console, HDMI capture or calibration evidence"},
+  "required_criteria": {
+    "profile_id": "reference_host_compatibility",
+    "profile_version": "1.0.0",
+    "ids": ["REF-pairing", "REF-stream", "REF-controller", "REF-teardown", "REF-recording", "REF-report"]
+  },
+  "evidence": {
+    "host_metrics": false,
+    "input_delivery": false,
+    "reference_recording": false,
+    "official_client_observations": false,
+    "operator_observations": false
+  },
+  "output_dir": "core-fake",
+  "write_policy": {"max_bytes": 67108864, "max_files": 128, "on_limit": "incomplete"}
+}

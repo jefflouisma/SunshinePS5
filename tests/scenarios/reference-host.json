@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0.0",
+  "id": "g913-reference-sdr-1080p60",
+  "host": "192.168.1.221",
+  "pairing": {
+    "pin_delivery": "wolf",
+    "provider_ref": "g913-wolf"
+  },
+  "requested": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "bitrate_kbps": 20000,
+    "codec": "h264",
+    "dynamic_range": "sdr"
+  },
+  "duration_seconds": 10,
+  "controllers": [
+    {
+      "id": 0,
+      "actions": [
+        {
+          "event_id": "connect-0",
+          "at_seconds": 1,
+          "type": "connect",
+          "expected_delivery": true
+        },
+        {
+          "event_id": "stick-left-0",
+          "at_seconds": 2,
+          "type": "stick",
+          "stick": "left",
+          "x": 0.25,
+          "y": 0,
+          "expected_delivery": true,
+          "expected_response": "Independent read-only Wolf evdev observation records ABS_X deflection and return to neutral"
+        },
+        {
+          "event_id": "stick-neutral-0",
+          "at_seconds": 3,
+          "type": "stick",
+          "stick": "left",
+          "x": 0,
+          "y": 0,
+          "expected_delivery": true
+        },
+        {
+          "event_id": "disconnect-0",
+          "at_seconds": 4,
+          "type": "disconnect",
+          "expected_delivery": true
+        }
+      ]
+    }
+  ],
+  "reference": {
+    "required": true,
+    "device_ref": "g913-host-output",
+    "capture_mode": {
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "dynamic_range": "sdr",
+      "pixel_format": "yuv420p",
+      "bit_depth": 8,
+      "color_space": "BT.709"
+    },
+    "calibration_id": null,
+    "calibration_reason": "Headless Wolf provides no independent host-output recording, capture-chain calibration or source HDR oracle; REF-recording remains Incomplete"
+  },
+  "required_criteria": {
+    "profile_id": "reference_host_compatibility",
+    "profile_version": "1.0.0",
+    "ids": [
+      "REF-pairing",
+      "REF-stream",
+      "REF-controller",
+      "REF-teardown",
+      "REF-recording",
+      "REF-report"
+    ]
+  },
+  "evidence": {
+    "host_metrics": true,
+    "input_delivery": true,
+    "reference_recording": true,
+    "official_client_observations": true,
+    "operator_observations": true
+  },
+  "output_dir": "reference-host-sdr",
+  "write_policy": {
+    "max_bytes": 2147483648,
+    "max_files": 512,
+    "on_limit": "incomplete"
+  }
+}

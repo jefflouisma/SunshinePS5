@@ -1,0 +1,7 @@
+POST /api/v1/pairing/pin HTTP/1.1
+Host: 10.0.0.2:47990
+Content-Type: application/json
+X-SP5-Token: @TOKEN@
+Content-Length: @LEN@
+
+{"request_id":9007199254740992,"pin":"1234"}

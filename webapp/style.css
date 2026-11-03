@@ -1,0 +1,145 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  color: #edf2fa;
+  background: #111722;
+  line-height: 1.5;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1rem;
+  /* Valid 63-character names have no spaces to wrap at; never widen the page. */
+  overflow-wrap: anywhere;
+}
+header {
+  padding: 1rem 0;
+}
+h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+h2 {
+  font-size: 1.2rem;
+  margin-top: 0;
+}
+h3 {
+  font-size: 1.05rem;
+}
+.eyebrow {
+  color: #a4c8fc;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+}
+section,
+article,
+#pairing {
+  min-width: 0;
+}
+#status,
+#pairing,
+#metrics-control,
+#settings,
+article {
+  padding: 1rem;
+  background: #1c2635;
+  border: 1px solid #38475e;
+  border-radius: 0.6rem;
+  margin-bottom: 1rem;
+}
+nav,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+button,
+input {
+  font: inherit;
+  border: 1px solid #7187a7;
+  border-radius: 0.35rem;
+  min-height: 44px;
+}
+button {
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+  color: #eef5ff;
+  background: #234c7a;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+button:hover {
+  background: #306299;
+}
+input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  background: #101722;
+  color: #fff;
+  padding: 0.5rem;
+  margin: 0.3rem 0 0.8rem;
+}
+label {
+  display: block;
+}
+form {
+  margin-bottom: 1rem;
+}
+:focus-visible {
+  outline: 3px solid #ffd17b;
+  outline-offset: 3px;
+}
+.danger {
+  border-color: #fa989b;
+  background: #702c39;
+  margin-top: 0.5rem;
+}
+.danger:hover {
+  background: #8b3948;
+}
+#feedback {
+  min-height: 1.5rem;
+  color: #a7e9bc;
+}
+#feedback.error {
+  color: #ffb8ba;
+}
+dialog {
+  max-width: calc(100vw - 2rem);
+  width: 30rem;
+  border: 1px solid #7187a7;
+  border-radius: 0.6rem;
+  background: #1c2635;
+  color: #edf2fa;
+}
+dialog::backdrop {
+  background: #000a;
+}
+footer {
+  font-size: 0.85rem;
+  color: #b2bfd3;
+  padding: 1rem 0;
+}
+[hidden] {
+  display: none;
+}
+#metrics-view article {
+  min-width: 0;
+}
+#metrics-view dl {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+#metrics-view [data-largest="true"] {
+  border-left: 4px solid #f3bf61;
+}
+#metrics-view meter {
+  max-width: 100%;
+}
+.warning {
+  color: #ffb8ba;
+}

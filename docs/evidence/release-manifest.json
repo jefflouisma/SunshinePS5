@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "overall": "Incomplete",
+  "entries": [
+    {
+      "id": "SC-001",
+      "status": "Incomplete",
+      "reason": "Missing ten-participant first-time Apple TV onboarding acceptance evidence.",
+      "evidence": []
+    },
+    {
+      "id": "SC-002",
+      "status": "Incomplete",
+      "reason": "Missing official-client startup timing and pairing durability evidence.",
+      "evidence": []
+    },
+    {
+      "id": "SC-003",
+      "status": "Incomplete",
+      "reason": "Missing full-population 30-minute wired 1080p60 protocol latency evidence.",
+      "evidence": []
+    },
+    {
+      "id": "SC-004",
+      "status": "Incomplete",
+      "reason": "Missing host-drop population and denominator from the required wired run.",
+      "evidence": []
+    },
+    {
+      "id": "SC-005",
+      "status": "Incomplete",
+      "reason": "Missing measured input receipt-to-console-delivery population and functional response.",
+      "evidence": []
+    },
+    {
+      "id": "SC-006",
+      "status": "Incomplete",
+      "reason": "Missing two-hour hardware soak, all memory domains and first/last ten-minute timing windows.",
+      "evidence": []
+    },
+    {
+      "id": "SC-007",
+      "status": "Incomplete",
+      "reason": "Missing verification of every required official-client platform/version matrix entry.",
+      "evidence": []
+    },
+    {
+      "id": "SC-008",
+      "status": "Incomplete",
+      "reason": "Missing repeated matched hardware metrics-on/off overhead and noise measurements.",
+      "evidence": []
+    },
+    {
+      "id": "SC-009",
+      "status": "Incomplete",
+      "reason": "Missing matched five-game slowdown/stutter acceptance observations.",
+      "evidence": []
+    },
+    {
+      "id": "SC-010",
+      "status": "Incomplete",
+      "reason": "Missing on-device unpaired/revoked request refusal, active revocation and reconnect evidence.",
+      "evidence": []
+    },
+    {
+      "id": "SC-011",
+      "status": "Incomplete",
+      "reason": "Missing required 360px browser journey and three-tap acceptance evidence.",
+      "evidence": []
+    },
+    {
+      "id": "SC-012",
+      "status": "Incomplete",
+      "reason": "Missing 30-minute native HDR latency and host-drop hardware population.",
+      "evidence": []
+    },
+    {
+      "id": "SC-013",
+      "status": "Incomplete",
+      "reason": "Missing calibrated native ten-bit HDR fidelity, metadata, ramps and all-platform visual evidence.",
+      "evidence": []
+    },
+    {
+      "id": "SC-014",
+      "status": "Incomplete",
+      "reason": "Missing full-population native SDR fidelity and declared release-baseline policy evidence.",
+      "evidence": []
+    },
+    {
+      "id": "US1",
+      "status": "Incomplete",
+      "reason": "Missing complete real-console pairing, SDR playback, audio, controller and cleanup acceptance.",
+      "evidence": []
+    },
+    {
+      "id": "US2",
+      "status": "Incomplete",
+      "reason": "Missing complete real-console HDR acceptance.",
+      "evidence": []
+    },
+    {
+      "id": "US3",
+      "status": "Incomplete",
+      "reason": "Missing complete real-console paired-device management and revocation acceptance.",
+      "evidence": []
+    },
+    {
+      "id": "US4",
+      "status": "Incomplete",
+      "reason": "Missing complete real-console metrics and settings acceptance.",
+      "evidence": []
+    },
+    {
+      "id": "US5",
+      "status": "Incomplete",
+      "reason": "Missing complete independently validated reference-client and real-console automated acceptance.",
+      "evidence": []
+    },
+    {
+      "id": "CI-format-lint",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CI-format-lint; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CI-build-linux-macos-ps5-client",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CI-build-linux-macos-ps5-client; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CI-unit-e2e",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CI-unit-e2e; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CI-asan-ubsan",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CI-asan-ubsan; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CI-fuzz-pr-nightly",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CI-fuzz-pr-nightly; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CI-license-dependency-audit",
+      "status": "Incomplete",
+      "reason": "Licensing was excluded from current implementation scope by the owner; required release audit evidence is absent and no release waiver is inferred.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-I-official-client-matrix",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-I-official-client-matrix; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-II-hotpaths-hardware-encode-input-isolation",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-II-hotpaths-hardware-encode-input-isolation; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-II-pipeline-stage-timing-regression",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-II-pipeline-stage-timing-regression; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-III-cpu-memory-budgets-fixed-pools",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-III-cpu-memory-budgets-fixed-pools; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-III-termination-input-release-resource-cleanup",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-III-termination-input-release-resource-cleanup; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-III-firmware-privilege-hooks-restored",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-III-firmware-privilege-hooks-restored; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-IV-local-network-crypto-device-identity",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-IV-local-network-crypto-device-identity; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-V-portable-core-platform-verification",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-V-portable-core-platform-verification; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-V-independent-reference-client",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-V-independent-reference-client; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "CONST-VI-source-audit-no-placeholders-truthful-docs",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for CONST-VI-source-audit-no-placeholders-truthful-docs; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "RELEASE-open-toolchain-pinned-reproducible-build",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for RELEASE-open-toolchain-pinned-reproducible-build; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "RELEASE-no-prohibited-content-functionality",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for RELEASE-no-prohibited-content-functionality; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "RELEASE-two-hour-on-device-soak",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for RELEASE-two-hour-on-device-soak; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "RELEASE-semver-changelog-tag-checksums-notes-matrices",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for RELEASE-semver-changelog-tag-checksums-notes-matrices; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    },
+    {
+      "id": "RELEASE-human-maintainer-review",
+      "status": "Incomplete",
+      "reason": "Missing reviewed release evidence for RELEASE-human-maintainer-review; implementation tests or prior reports alone do not establish this gate.",
+      "evidence": []
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+# JVM crash logs
+hs_err_pid*.log
+# CocoIndex Code (ccc)
+/.cocoindex_code/
+
+# Build outputs (C11 core / CMake, Rust test client)
+build/
+bin/
+obj/
+out/
+dist/
+target/
+*.o
+*.a
+*.so
+*.dylib
+*.elf
+*.prx
+compile_commands.json
+autom4te.cache/
+config.status
+config.log
+
+# Node / Playwright
+node_modules/
+playwright-report/
+test-results/
+
+# Python test tooling
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local secrets, logs, editor and OS files
+.env*
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local evidence: only reviewed, bounded metadata may be tracked.
+# Keep the parent directories traversable for these exact direct-child exceptions.
+/evidence/*
+!/evidence/runs/
+/evidence/runs/*
+!/evidence/runs/*/
+/evidence/runs/*/*
+!/evidence/runs/*/manifest.json
+!/evidence/runs/*/provenance.json
+!/evidence/runs/*/checksums.sha256
+!/evidence/runs/*/first-ten-minutes.json
+!/evidence/runs/*/last-ten-minutes.json
+
+# Identity material and device inventories stay local, including outside evidence/.
+secrets/
+credentials/
+.ssh/
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+*.keystore
+id_rsa*
+id_ed25519*
+credentials.json
+tokens.json
+device-serial*
+device_serial*
+
+# Bulk capture/diagnostic destinations and additional generated binary formats.
+/artifacts/
+/captures/
+/recordings/
+*.pcap
+*.pcapng
+*.p010
+*.nv12
+*.yuv
+*.bin
+*.pkg
+*.exe
+*.dll
+*.self
+*.sprx
+*.dSYM/
+
+# Local agent tooling and evidence workspaces (never published)
+/.omo/
+/.agents/
+/.claude/
+/.kimi-code/
+/.opencode/
+/.cocoindex_code/
+
+# moonlight-mcp scenario run outputs written to the working directory
+/t0[0-9][0-9]-*/
+/ps5-diagnostic-*/

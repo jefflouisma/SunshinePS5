@@ -1,0 +1,13 @@
+v=0
+a=x-nv-video[0].clientViewportWd:1280 
+a=x-nv-video[0].clientViewportHt:720 
+a=x-nv-video[0].maxFPS:60 
+a=x-ml-video.configuredBitrateKbps:-5 
+a=x-nv-vqos[0].bitStreamFormat:0 
+a=x-nv-video[0].dynamicRangeMode:0 
+a=x-nv-general.useReliableUdp:13 
+a=x-ss-general.encryptionEnabled:1 
+a=x-ml-general.featureFlags:3 
+a=x-nv-video[0].packetSize:1392 
+a=x-nv-audio.surround.numChannels:2 
+a=x-nv-audio.surround.channelMask:3 

@@ -1,0 +1,1068 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunshineps5.local/schemas/1.1.0/host-observation.schema.json",
+  "title": "Version 1.1 host observation (backward compatible with 1.0)",
+  "description": "Streamed host-authority frame/input boundary records. Frame drops remain separate from client packet/frame loss. A network acknowledgement is not a console delivery observation.",
+  "$comment": "Consumers correlate session/frame/event IDs and source_clock.id with clock_domain, check monotonic timestamps within each epoch, authenticate input provenance, and verify platform delivery documentation. Nested evidence must belong to this session/frame/event. Schemas do not attest hardware provenance; synthetic_fixture records cannot close console acceptance gates. Coverage buffers are bounded and overflow must invalidate coverage rather than silently omit gaps.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "session_id",
+    "provenance",
+    "source",
+    "kind",
+    "clock_domain",
+    "source_clock",
+    "observed_at",
+    "population",
+    "coverage",
+    "validity",
+    "reason",
+    "artifact_refs",
+    "measurements"
+  ],
+  "properties": {
+    "schema_version": {
+      "enum": [
+        "1.0.0",
+        "1.1.0"
+      ]
+    },
+    "id": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/id"
+    },
+    "provenance": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/provenance"
+    },
+    "source": {
+      "const": "host_pipeline"
+    },
+    "kind": {
+      "enum": [
+        "frame",
+        "input",
+        "metrics_coverage"
+      ]
+    },
+    "frame_id": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+    },
+    "event_id": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/id"
+    },
+    "controller_id": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "boundary": {
+      "enum": [
+        "captured",
+        "encode_accepted",
+        "encode_completed",
+        "network_submitted",
+        "host_dropped",
+        "host_received",
+        "console_delivered",
+        "delivery_failed",
+        "metrics_enabled",
+        "metrics_disabled",
+        "coverage_invalidated"
+      ]
+    },
+    "drop_reason": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/reason"
+    },
+    "authenticated": {
+      "type": "boolean"
+    },
+    "delivery_boundary": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/reason"
+    },
+    "clock_domain": {
+      "anyOf": [
+        {
+          "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/id"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_clock": {
+      "anyOf": [
+        {
+          "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/clock"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "observed_at": {
+      "anyOf": [
+        {
+          "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "population": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/population"
+    },
+    "coverage": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/coverage"
+    },
+    "validity": {
+      "enum": [
+        "valid",
+        "unavailable",
+        "invalid"
+      ]
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/reason"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "artifact_refs": {
+      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/artifact_refs"
+    },
+    "measurements": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "host_version",
+            "firmware_version",
+            "client_name",
+            "codec",
+            "delivery_boundary",
+            "width",
+            "height",
+            "fps_numerator",
+            "fps_denominator",
+            "requested_bitrate_kbps",
+            "chosen_bitrate_kbps",
+            "dynamic_range"
+          ],
+          "properties": {
+            "host_version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "firmware_version": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "client_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "codec": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "delivery_boundary": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "width": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "height": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fps_numerator": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fps_denominator": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "requested_bitrate_kbps": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "chosen_bitrate_kbps": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dynamic_range": {
+              "enum": [
+                "unknown",
+                "sdr",
+                "hdr_pq_bt2020"
+              ]
+            }
+          }
+        },
+        "summaries": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "channel",
+              "window",
+              "population",
+              "median",
+              "p95",
+              "p99"
+            ],
+            "properties": {
+              "channel": {
+                "enum": [
+                  "capture",
+                  "encode",
+                  "packetize",
+                  "send",
+                  "full_pipeline",
+                  "input_delivery"
+                ]
+              },
+              "window": {
+                "enum": [
+                  "whole_session",
+                  "last_10_seconds"
+                ]
+              },
+              "population": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "seen",
+                  "represented",
+                  "overflow",
+                  "missing",
+                  "failed_deliveries"
+                ],
+                "properties": {
+                  "seen": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  "represented": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  "overflow": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  "missing": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  "failed_deliveries": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  }
+                }
+              },
+              "median": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "value_us",
+                  "lower_bound_us",
+                  "population",
+                  "validity",
+                  "reason"
+                ],
+                "properties": {
+                  "value_us": {
+                    "anyOf": [
+                      {
+                        "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lower_bound_us": {
+                    "anyOf": [
+                      {
+                        "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "population": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  "validity": {
+                    "enum": [
+                      "valid",
+                      "unavailable",
+                      "invalid"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "validity": {
+                          "const": "valid"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "value_us": {
+                          "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                        },
+                        "lower_bound_us": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "value_us": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "p95": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "value_us",
+                  "lower_bound_us",
+                  "population",
+                  "validity",
+                  "reason"
+                ],
+                "properties": {
+                  "value_us": {
+                    "anyOf": [
+                      {
+                        "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lower_bound_us": {
+                    "anyOf": [
+                      {
+                        "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "population": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  "validity": {
+                    "enum": [
+                      "valid",
+                      "unavailable",
+                      "invalid"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "validity": {
+                          "const": "valid"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "value_us": {
+                          "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                        },
+                        "lower_bound_us": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "value_us": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "p99": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "value_us",
+                  "lower_bound_us",
+                  "population",
+                  "validity",
+                  "reason"
+                ],
+                "properties": {
+                  "value_us": {
+                    "anyOf": [
+                      {
+                        "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lower_bound_us": {
+                    "anyOf": [
+                      {
+                        "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "population": {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  "validity": {
+                    "enum": [
+                      "valid",
+                      "unavailable",
+                      "invalid"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "validity": {
+                          "const": "valid"
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "value_us": {
+                          "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                        },
+                        "lower_bound_us": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "value_us": {
+                          "type": "null"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "retained": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "frames",
+            "inputs"
+          ],
+          "properties": {
+            "frames": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "first_us",
+                "last_us",
+                "records"
+              ],
+              "properties": {
+                "first_us": {
+                  "anyOf": [
+                    {
+                      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "last_us": {
+                  "anyOf": [
+                    {
+                      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "records": {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                }
+              }
+            },
+            "inputs": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "first_us",
+                "last_us",
+                "records"
+              ],
+              "properties": {
+                "first_us": {
+                  "anyOf": [
+                    {
+                      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "last_us": {
+                  "anyOf": [
+                    {
+                      "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "records": {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                }
+              }
+            }
+          }
+        },
+        "continuous": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "frame_outcomes",
+            "encoded_bytes",
+            "network_bytes",
+            "client_lost_packets",
+            "client_recovery_requests",
+            "start_us",
+            "end_us",
+            "validity",
+            "reason",
+            "encoded_bitrate_bps",
+            "network_throughput_bps",
+            "frame_rate_millihz"
+          ],
+          "properties": {
+            "frame_outcomes": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "items": {
+                "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+              }
+            },
+            "encoded_bytes": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            },
+            "network_bytes": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            },
+            "client_lost_packets": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            },
+            "client_recovery_requests": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            },
+            "start_us": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            },
+            "end_us": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            },
+            "validity": {
+              "enum": [
+                "valid",
+                "invalid",
+                "unavailable"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "encoded_bitrate_bps": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "network_throughput_bps": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "frame_rate_millihz": {
+              "anyOf": [
+                {
+                  "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "allocated_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 83886080
+        },
+        "raw": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "observed_us",
+            "durations_us",
+            "flags"
+          ],
+          "properties": {
+            "observed_us": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            },
+            "durations_us": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "flags": {
+              "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "validity": {
+            "const": "valid"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "clock_domain": {
+            "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/id"
+          },
+          "source_clock": {
+            "allOf": [
+              {
+                "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/clock"
+              },
+              {
+                "properties": {
+                  "validity": {
+                    "const": "valid"
+                  }
+                }
+              }
+            ]
+          },
+          "observed_at": {
+            "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/counter"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/reason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "observed_at": {
+            "type": "null"
+          },
+          "reason": {
+            "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/reason"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "frame"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frame_id",
+          "boundary"
+        ],
+        "properties": {
+          "boundary": {
+            "enum": [
+              "captured",
+              "encode_accepted",
+              "encode_completed",
+              "network_submitted",
+              "host_dropped"
+            ]
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "event_id"
+              ]
+            },
+            {
+              "required": [
+                "controller_id"
+              ]
+            },
+            {
+              "required": [
+                "delivery_boundary"
+              ]
+            },
+            {
+              "required": [
+                "authenticated"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "input"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "event_id",
+          "controller_id",
+          "boundary",
+          "authenticated"
+        ],
+        "properties": {
+          "boundary": {
+            "enum": [
+              "host_received",
+              "console_delivered",
+              "delivery_failed"
+            ]
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "frame_id"
+              ]
+            },
+            {
+              "required": [
+                "drop_reason"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "metrics_coverage"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "boundary"
+        ],
+        "properties": {
+          "boundary": {
+            "enum": [
+              "metrics_enabled",
+              "metrics_disabled",
+              "coverage_invalidated"
+            ]
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "frame_id"
+              ]
+            },
+            {
+              "required": [
+                "event_id"
+              ]
+            },
+            {
+              "required": [
+                "controller_id"
+              ]
+            },
+            {
+              "required": [
+                "delivery_boundary"
+              ]
+            },
+            {
+              "required": [
+                "authenticated"
+              ]
+            },
+            {
+              "required": [
+                "drop_reason"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "boundary": {
+            "const": "host_dropped"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "drop_reason"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "drop_reason"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "boundary": {
+            "const": "console_delivered"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "delivery_boundary"
+        ],
+        "properties": {
+          "authenticated": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "boundary": {
+            "const": "delivery_failed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": {
+            "$ref": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json#/$defs/reason"
+          }
+        }
+      }
+    }
+  ]
+}

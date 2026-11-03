@@ -1,0 +1,2 @@
+GET /resume?rikey=00112233445566778899aabbccddeeff&rikeyid=1&corever=1 HTTP/1.1
+

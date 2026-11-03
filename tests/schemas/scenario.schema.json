@@ -1,0 +1,351 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunshineps5.local/schemas/1.0.0/scenario.schema.json",
+  "title": "Version 1 controller-only test-client scenario",
+  "description": "Immutable run declaration; versioned criterion sets come from tests/scenarios/profiles/acceptance.json. Missing required evidence after declaration produces Incomplete, never removal of a criterion.",
+  "$comment": "Consumers must check unique controller/event IDs, action ordering and duration, reference/stream format compatibility, safe path containment, provider lookup without secrets, and profile immutability. Positive numeric limits below are representation bounds, not evidence of supported console modes. No manual PIN wait is permitted in unattended runs. Profile 1.0.0 does not settle implementation decision D5 or the calibration gates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "host",
+    "pairing",
+    "requested",
+    "duration_seconds",
+    "controllers",
+    "reference",
+    "required_criteria",
+    "evidence",
+    "output_dir",
+    "write_policy"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "id": { "$ref": "evidence.schema.json#/$defs/id" },
+    "host": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[A-Za-z0-9.:%_-]+$"
+    },
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pin_delivery"],
+      "properties": {
+        "pin_delivery": { "enum": ["already_paired", "command", "sunshine", "wolf"] },
+        "provider_ref": { "$ref": "evidence.schema.json#/$defs/id" }
+      },
+      "if": { "properties": { "pin_delivery": { "const": "already_paired" } } },
+      "then": { "not": { "required": ["provider_ref"] } },
+      "else": { "required": ["provider_ref"] },
+      "description": "Provider references resolve to separately managed local PIN helpers/state; never embed PINs, credentials or executable shell text in retained scenarios."
+    },
+    "requested": { "$ref": "#/$defs/mode" },
+    "duration_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 4294967295 },
+    "controllers": {
+      "type": "array",
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "actions"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0, "maximum": 3 },
+          "actions": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/action" } }
+        }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "device_ref": { "$ref": "evidence.schema.json#/$defs/id" },
+        "capture_mode": { "$ref": "#/$defs/recording_mode" },
+        "calibration_id": {
+          "anyOf": [{ "$ref": "evidence.schema.json#/$defs/id" }, { "type": "null" }]
+        },
+        "calibration_reason": {
+          "anyOf": [{ "$ref": "evidence.schema.json#/$defs/reason" }, { "type": "null" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "required": { "const": true } } },
+          "then": {
+            "required": ["device_ref", "capture_mode", "calibration_id", "calibration_reason"]
+          }
+        },
+        {
+          "if": {
+            "required": ["calibration_id"],
+            "properties": { "calibration_id": { "type": "null" } }
+          },
+          "then": {
+            "required": ["calibration_reason"],
+            "properties": { "calibration_reason": { "$ref": "evidence.schema.json#/$defs/reason" } }
+          }
+        }
+      ]
+    },
+    "required_criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "profile_version", "ids"],
+      "properties": {
+        "profile_id": {
+          "enum": ["reference_host_compatibility", "ps5_release_first", "ps5_release_subsequent"]
+        },
+        "profile_version": { "const": "1.0.0" },
+        "ids": { "type": "array", "minItems": 1, "maxItems": 14, "uniqueItems": true },
+        "declared_exclusions": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 1,
+          "items": { "const": "SC-014.prior_release_median_regression" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "profile_id": { "const": "reference_host_compatibility" } } },
+          "then": {
+            "properties": {
+              "ids": {
+                "minItems": 6,
+                "maxItems": 6,
+                "items": {
+                  "enum": [
+                    "REF-pairing",
+                    "REF-stream",
+                    "REF-controller",
+                    "REF-teardown",
+                    "REF-recording",
+                    "REF-report"
+                  ]
+                }
+              },
+              "declared_exclusions": { "maxItems": 0 }
+            }
+          },
+          "else": {
+            "properties": {
+              "ids": {
+                "minItems": 14,
+                "maxItems": 14,
+                "items": {
+                  "enum": [
+                    "SC-001",
+                    "SC-002",
+                    "SC-003",
+                    "SC-004",
+                    "SC-005",
+                    "SC-006",
+                    "SC-007",
+                    "SC-008",
+                    "SC-009",
+                    "SC-010",
+                    "SC-011",
+                    "SC-012",
+                    "SC-013",
+                    "SC-014"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "profile_id": { "const": "ps5_release_first" } } },
+          "then": {
+            "required": ["declared_exclusions"],
+            "properties": { "declared_exclusions": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": { "properties": { "profile_id": { "const": "ps5_release_subsequent" } } },
+          "then": { "properties": { "declared_exclusions": { "maxItems": 0 } } }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host_metrics",
+        "input_delivery",
+        "reference_recording",
+        "official_client_observations",
+        "operator_observations"
+      ],
+      "properties": {
+        "host_metrics": { "type": "boolean" },
+        "input_delivery": { "type": "boolean" },
+        "reference_recording": { "type": "boolean" },
+        "official_client_observations": { "type": "boolean" },
+        "operator_observations": { "type": "boolean" }
+      },
+      "description": "Required evidence sources. A false flag cannot waive evidence required by a declared criterion."
+    },
+    "output_dir": { "$ref": "evidence.schema.json#/$defs/local_path" },
+    "write_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_bytes", "max_files", "on_limit"],
+      "properties": {
+        "max_bytes": { "type": "integer", "minimum": 1, "maximum": 18446744073709551615 },
+        "max_files": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "on_limit": { "const": "incomplete" }
+      }
+    }
+  },
+  "$defs": {
+    "mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "fps", "bitrate_kbps", "codec", "dynamic_range"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "fps": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "bitrate_kbps": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "codec": { "enum": ["h264", "hevc", "av1"] },
+        "dynamic_range": { "enum": ["sdr", "hdr"] }
+      },
+      "$comment": "Dimensions/fps/bitrate use the existing u32 representation in tools/moonlight-mcp/src/rtsp.rs StreamSettings and core/platform.h sp5_media_config. Checked protocol conversion is still required (D1); supported mode min/max remain evidence pending."
+    },
+    "recording_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "fps",
+        "dynamic_range",
+        "pixel_format",
+        "bit_depth",
+        "color_space"
+      ],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "fps": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "dynamic_range": { "enum": ["sdr", "hdr"] },
+        "pixel_format": { "$ref": "evidence.schema.json#/$defs/id" },
+        "bit_depth": { "enum": [8, 10] },
+        "color_space": { "enum": ["BT.709", "PQ/BT.2020"] }
+      },
+      "if": { "properties": { "dynamic_range": { "const": "hdr" } } },
+      "then": {
+        "properties": { "bit_depth": { "const": 10 }, "color_space": { "const": "PQ/BT.2020" } }
+      },
+      "else": {
+        "properties": { "bit_depth": { "const": 8 }, "color_space": { "const": "BT.709" } }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["event_id", "at_seconds", "type"],
+      "properties": {
+        "event_id": { "$ref": "evidence.schema.json#/$defs/id" },
+        "at_seconds": { "type": "number", "minimum": 0 },
+        "type": {
+          "enum": [
+            "connect",
+            "disconnect",
+            "button",
+            "stick",
+            "trigger",
+            "motion",
+            "touchpad",
+            "expect_rumble"
+          ]
+        },
+        "expected_delivery": { "type": "boolean" },
+        "expected_response": { "$ref": "evidence.schema.json#/$defs/reason" }
+      },
+      "oneOf": [
+        { "properties": { "type": { "enum": ["connect", "disconnect"] } } },
+        {
+          "required": ["button", "pressed"],
+          "properties": {
+            "type": { "const": "button" },
+            "button": {
+              "enum": [
+                "cross",
+                "circle",
+                "square",
+                "triangle",
+                "dpad_up",
+                "dpad_down",
+                "dpad_left",
+                "dpad_right",
+                "l1",
+                "r1",
+                "l3",
+                "r3",
+                "options",
+                "share",
+                "home",
+                "touchpad"
+              ]
+            },
+            "pressed": { "type": "boolean" }
+          }
+        },
+        {
+          "required": ["stick", "x", "y"],
+          "properties": {
+            "type": { "const": "stick" },
+            "stick": { "enum": ["left", "right"] },
+            "x": { "$ref": "#/$defs/axis" },
+            "y": { "$ref": "#/$defs/axis" }
+          }
+        },
+        {
+          "required": ["trigger", "value"],
+          "properties": {
+            "type": { "const": "trigger" },
+            "trigger": { "enum": ["left", "right"] },
+            "value": { "$ref": "#/$defs/normalized" }
+          }
+        },
+        {
+          "required": ["sensor", "x", "y", "z"],
+          "properties": {
+            "type": { "const": "motion" },
+            "sensor": { "enum": ["accel", "gyro"] },
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          },
+          "description": "Acceleration in m/s^2; angular velocity in degrees/s, per protocol-notes section 12.5."
+        },
+        {
+          "required": ["contact_id", "phase", "x", "y"],
+          "properties": {
+            "type": { "const": "touchpad" },
+            "contact_id": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "phase": { "enum": ["down", "move", "up", "cancel"] },
+            "x": { "$ref": "#/$defs/normalized" },
+            "y": { "$ref": "#/$defs/normalized" }
+          }
+        },
+        {
+          "required": ["minimum_amplitude", "timeout_seconds"],
+          "properties": {
+            "type": { "const": "expect_rumble" },
+            "minimum_amplitude": { "$ref": "#/$defs/normalized" },
+            "timeout_seconds": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "axis": { "type": "number", "minimum": -1, "maximum": 1 },
+    "normalized": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

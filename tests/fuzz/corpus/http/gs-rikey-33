@@ -1,0 +1,2 @@
+GET /launch?appid=1&mode=1280x720x60&rikey=00112233445566778899aabbccddeeff0&rikeyid=1&localAudioPlayMode=0 HTTP/1.1
+

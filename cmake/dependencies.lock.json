@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-10-24",
+  "scope": "T002 portable C11 build baseline; no PS5 artifact, cross-build, or hardware acceptance",
+  "language": {
+    "name": "C",
+    "standard": "C11",
+    "extensions": false
+  },
+  "build_system": {
+    "name": "CMake",
+    "version": "4.3.4",
+    "portable_minimum_version": "3.25",
+    "source_archive": {
+      "url": "https://github.com/Kitware/CMake/releases/download/v4.3.4/cmake-4.3.4.tar.gz",
+      "filename": "cmake-4.3.4.tar.gz",
+      "size_bytes": 12976016,
+      "sha256": "fdeff897b9eb49d764539f2b1edc6eb7e1440df325678a97c1978499e931adda",
+      "verification": {
+        "status": "publisher_digest_matched",
+        "method": "SHA-256 of complete archive downloaded over HTTPS on 2026-10-24",
+        "publisher_digest": "sha256:fdeff897b9eb49d764539f2b1edc6eb7e1440df325678a97c1978499e931adda",
+        "signature_verified": false
+      }
+    },
+    "local_observation": {
+      "version": "cmake version 4.3.4",
+      "executable_sha256": "fb32e700c58fa0d8f41c05e0f36cfeb144f6ccec7df1f66bbfa90ca931118645",
+      "rebuilt_from_locked_archive": false
+    }
+  },
+  "dependencies": {
+    "ps5_payload_sdk": {
+      "version": "0.45",
+      "tag": "v0.45",
+      "repository": "https://github.com/ps5-payload-dev/sdk",
+      "source_commit": "a7685ce8e97ce1f8a4f38253a41d54241c9124f1",
+      "source_pin_verification": "GitHub tag reference resolved to source_commit on 2026-10-24",
+      "source_archive": {
+        "url": "https://codeload.github.com/ps5-payload-dev/sdk/tar.gz/a7685ce8e97ce1f8a4f38253a41d54241c9124f1",
+        "filename": "sdk-a7685ce.tar.gz",
+        "size_bytes": 3388424,
+        "sha256": "2b3aa72a1f832923d175b7f469a5d19c51b39fba08b4757c917be5f9032a5fbf",
+        "verification": {
+          "status": "downloaded_and_hashed",
+          "method": "SHA-256 of complete archive downloaded over HTTPS on 2026-10-24",
+          "publisher_digest": null,
+          "signature_verified": false
+        }
+      },
+      "release_archive": {
+        "url": "https://github.com/ps5-payload-dev/sdk/releases/download/v0.45/ps5-payload-sdk.zip",
+        "filename": "ps5-payload-sdk.zip",
+        "size_bytes": 8838658,
+        "sha256": "5fac64093d0e3e69f2584ce7935f24f703f622d9681f1495c85b9f00d1291a2c",
+        "verification": {
+          "status": "publisher_digest_matched",
+          "method": "SHA-256 of complete archive downloaded over HTTPS on 2026-10-24",
+          "publisher_digest": "sha256:5fac64093d0e3e69f2584ce7935f24f703f622d9681f1495c85b9f00d1291a2c",
+          "signature_verified": false
+        }
+      },
+      "local_observation": {
+        "cached_archive_sha256": "5fac64093d0e3e69f2584ce7935f24f703f622d9681f1495c85b9f00d1291a2c",
+        "cached_archive_matches_release": true,
+        "prospero_clang_sha256": "3dcf3139662db7b0f796c2073bc8f673a5557e48bc24d2e413896d33847a69db",
+        "prospero_clang_matches_release": true,
+        "entire_installed_tree_verified": false
+      }
+    },
+    "llvm": {
+      "version": "18.1.8",
+      "tag": "llvmorg-18.1.8",
+      "repository": "https://github.com/llvm/llvm-project",
+      "source_commit": "3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff",
+      "source_pin_verification": "GitHub annotated tag peeled to source_commit on 2026-10-24",
+      "source_archive": {
+        "url": "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/llvm-project-18.1.8.src.tar.xz",
+        "filename": "llvm-project-18.1.8.src.tar.xz",
+        "size_bytes": 132067260,
+        "sha256": "0b58557a6d32ceee97c8d533a59b9212d87e0fc4d2833924eb6c611247db2f2a",
+        "verification": {
+          "status": "downloaded_and_hashed",
+          "method": "SHA-256 of complete archive downloaded over HTTPS on 2026-10-24",
+          "publisher_digest": null,
+          "signature_verified": false
+        }
+      },
+      "local_observation": {
+        "compiler_version": "Homebrew clang version 18.1.8",
+        "prefix": "/opt/homebrew/opt/llvm@18",
+        "executable_sha256": "afb15d99a8191638bb4cd87618a0f27efa2cc4c9a254dd75c4c2d2a8dcd5eac1",
+        "installation": "Homebrew llvm@18/18.1.8; INSTALL_RECEIPT.json says poured_from_bottle=true, arm64, macOS 26",
+        "archive_provenance": {
+          "status": "unverified",
+          "sha256": null,
+          "reason": "Original Homebrew bottle is absent from the download cache; the receipt does not identify its bottle digest or rebuild. Current formula bottle rebuild 3 cannot establish the installed bottle identity. The upstream source archive is downloaded and hashed separately; it does not authenticate this installed executable.",
+          "release_requirement": "Rebuild from the locked source or obtain and verify a specifically pinned binary archive before using this installation as reproducible PS5 release provenance."
+        }
+      },
+      "verified_source_construction": {
+        "status": "local_build_and_project_smoke_passed",
+        "date_utc": "2026-11-01",
+        "builder": "scripts/build-verified-llvm18.sh",
+        "builder_sha256": "e97b2c8c075fe42cca5fe6618abbd176bfd9852f362cb257cdc5b16b32c273bb",
+        "configuration": "Release; clang,lld,clang-tools-extra; AArch64,X86; four compile jobs; one link job; isolated build/verified-llvm18/complete prefix",
+        "bootstrap": "AppleClang 21.0.0, CMake 4.3.4, Ninja 1.13.2 and the retained macOS SDK, each bound in the input manifest",
+        "input_manifest_sha256": "b1fe91f085416e60adfe87cf462d49e5633423ab76b7c31a1552b8dbdd89eddd",
+        "source_tree_manifest_sha256": "94dc645bce52b7d88c16e7066bd76ed92ded7083828847555b189b7e2c2b9829",
+        "output_manifest_sha256": "a544781b86ce71d5d6820312281cc6ff73fb95aa92dcb0f5ed7f5fd4f98ffe2e",
+        "project_smoke": "Full-CRT recovery-inspector host/target build and fixtures, 63/63 CTests, and the complete repository quality entry point passed with the isolated source-built tools",
+        "evidence": ".omo/evidence/llvm18-source-build-20261101/REPORT.md",
+        "limits": "One local source construction is traceable but is not bit-for-bit reproducibility, publisher authentication of the source archive, hosted CI, or verification of the separate Homebrew bottle."
+      }
+    },
+    "openssl": {
+      "version": "3.5.9",
+      "tag": "openssl-3.5.9",
+      "repository": "https://github.com/openssl/openssl",
+      "source_commit": "45e844fa2a14ec92d146bd8f5778ac130b6625fb",
+      "source_pin_verification": "GitHub annotated tag peeled to source_commit on 2026-10-24",
+      "source_archive": {
+        "url": "https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
+        "filename": "openssl-3.5.9.tar.gz",
+        "size_bytes": 53279637,
+        "sha256": "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+        "verification": {
+          "status": "publisher_digest_matched",
+          "method": "SHA-256 of complete archive downloaded over HTTPS on 2026-10-24",
+          "publisher_digest": "sha256:603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a",
+          "signature_verified": false
+        }
+      },
+      "ps5_validation": "passed 2026-10-25 firmware 13.60: strict cross-build/link; device OS RAND poll/status, RSA-2048/SHA-256/PEM, untrusted certificate rejection, mutual TLS 1.3 TCP echo and pthread entropy/join; dependency smoke only, not production readiness",
+      "ps5_probe_build": {
+        "configuration": "BSD-x86_64 no-shared no-dso no-module no-tests no-asm no-secure-memory no-devcryptoeng --with-rand-seed=os --libdir=lib -Werror",
+        "entropy_implementation": "providers/implementations/rands/seeding/rand_unix.c: FreeBSD KERN_ARND sysctl plus OS-device fallback; device RAND_poll/RAND_status and distinct outputs passed; physical entropy strength not independently measured",
+        "build_environment": {
+          "LLVM_CONFIG": "/opt/homebrew/opt/llvm@18/bin/llvm-config",
+          "TERM": "xterm-256color"
+        },
+        "patches": [
+          {
+            "scope": "build/export metadata only; supply missing path and COMMENT arguments to mkinstallvars.pl, no crypto changes",
+            "sha256": "3d029db9509d7d8b26e368a93ae3f621e4236fbc43541ab189a9dd6b3a59df84",
+            "unified_diff": "--- a/build.info\n+++ b/build.info\n@@ -134,7 +134,7 @@\n GENERATE[builddata.pm]=util/mkinstallvars.pl \\\n     COMMENT=\"This file should be used when building against this OpenSSL build, and should never be installed\" \\\n     PREFIX=. BINDIR=apps APPLINKDIR=ms \\\n-    LIBDIR= INCLUDEDIR=include \"INCLUDEDIR=$(SRCDIR)/include\" \\\n+    LIBDIR=. libdir=. PKGCONFIGDIR=. CMAKECONFIGDIR=. INCLUDEDIR=include \"INCLUDEDIR=$(SRCDIR)/include\" \\\n     ENGINESDIR=engines MODULESDIR=providers \\\n     \"VERSION=$(VERSION)\" \"LDLIBS=$(LIB_EX_LIBS)\"\n \n--- a/exporters/build.info\n+++ b/exporters/build.info\n@@ -19,7 +19,7 @@\n DEPEND[\"\"]=openssl.pc\n \n GENERATE[../installdata.pm]=../util/mkinstallvars.pl \\\n-    \"PREFIX=$(INSTALLTOP)\" BINDIR=bin \"LIBDIR=$(LIBDIR)\" \"libdir=$(libdir)\" \\\n+    COMMENT=\"Installation metadata\" \"PREFIX=$(INSTALLTOP)\" BINDIR=bin \"LIBDIR=$(LIBDIR)\" \"libdir=$(libdir)\" \\\n     INCLUDEDIR=include APPLINKDIR=include/openssl \\\n     \"ENGINESDIR=$(ENGINESDIR)\" \"MODULESDIR=$(MODULESDIR)\" \\\n     \"PKGCONFIGDIR=$(PKGCONFIGDIR)\" \"CMAKECONFIGDIR=$(CMAKECONFIGDIR)\" \\\n"
+          }
+        ]
+      }
+    },
+    "enet": {
+      "name": "Moonlight ENet fork",
+      "version": "1.3.17-moonlight-aca8784",
+      "repository": "https://github.com/cgutman/enet",
+      "source_commit": "aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
+      "selection_scope": "T043 nonshipping target dependency research; no production host readiness claim",
+      "source_archive": {
+        "url": "https://codeload.github.com/cgutman/enet/tar.gz/aca87840b57f045a1f7f9299e4b1b9b8e2a5e2f1",
+        "filename": "enet.tar.gz",
+        "size_bytes": 87167,
+        "sha256": "6bb1a151e6d21e1756baeff5a95eaf85a5b6731aeda6d0bc255651192ba4a32d",
+        "verification": {
+          "status": "downloaded_and_hashed",
+          "method": "HTTPS GitHub source-commit resolution and complete codeload archive SHA-256, 2026-10-25",
+          "publisher_digest": null,
+          "signature_verified": false
+        }
+      },
+      "patches": [
+        {
+          "scope": "explicitly consume six unused parameters; no wire/behavior change; bypass upstream CMake -Wno-error and build C sources directly with -Wall -Wextra -Werror",
+          "sha256": "4dbe1207a2ec02dc81b315b54af03ac460bc76f073e63c90be030dfd76fa953a",
+          "unified_diff": "--- a/peer.c\n+++ b/peer.c\n@@ -278,6 +278,7 @@\n static void\n enet_peer_remove_incoming_commands (ENetList * queue, ENetListIterator startCommand, ENetListIterator endCommand, ENetIncomingCommand * excludeCommand)\n {\n+    (void) queue;\n     ENetListIterator currentCommand;    \n     \n     for (currentCommand = startCommand; currentCommand != endCommand; )\n--- a/protocol.c\n+++ b/protocol.c\n@@ -35,6 +35,7 @@\n static void\n enet_protocol_change_state (ENetHost * host, ENetPeer * peer, ENetPeerState state)\n {\n+    (void) host;\n     if (state == ENET_PEER_STATE_CONNECTED || state == ENET_PEER_STATE_DISCONNECT_LATER)\n       enet_peer_on_connect (peer);\n     else\n@@ -294,6 +295,7 @@\n static ENetPeer *\n enet_protocol_handle_connect (ENetHost * host, ENetProtocolHeader * header, ENetProtocol * command)\n {\n+    (void) header;\n     enet_uint8 incomingSessionID, outgoingSessionID;\n     enet_uint32 mtu, windowSize;\n     ENetChannel * channel;\n@@ -765,6 +767,8 @@\n static int\n enet_protocol_handle_ping (ENetHost * host, ENetPeer * peer, const ENetProtocol * command)\n {\n+    (void) host;\n+    (void) command;\n     if (peer -> state != ENET_PEER_STATE_CONNECTED && peer -> state != ENET_PEER_STATE_DISCONNECT_LATER)\n       return -1;\n \n@@ -808,6 +812,7 @@\n static int\n enet_protocol_handle_throttle_configure (ENetHost * host, ENetPeer * peer, const ENetProtocol * command)\n {\n+    (void) host;\n     if (peer -> state != ENET_PEER_STATE_CONNECTED && peer -> state != ENET_PEER_STATE_DISCONNECT_LATER)\n       return -1;\n \n"
+        },
+        {
+          "scope": "T069 portable sanitizer correction: define retry-threshold comparison for sendAttempts >32 and zero; attempts 1..32 unchanged, source pin and wire protocol unchanged. Coordinator approved ctx_c73991224da0 on 2026-10-25 after upstream search.",
+          "sha256": "291eb793e24c67d33f561ee9e5b7d8ee36c8e6df477daf902d7838b27e193a10",
+          "unified_diff": "--- a/protocol.c\n+++ b/protocol.c\n@@ -1375,7 +1375,9 @@\n \n        if (peer -> earliestTimeout != 0 &&\n              (ENET_TIME_DIFFERENCE (host -> serviceTime, peer -> earliestTimeout) >= peer -> timeoutMaximum ||\n-               ((1U << (outgoingCommand -> sendAttempts - 1)) >= peer -> timeoutLimit &&\n+               ((outgoingCommand -> sendAttempts > 32 ||\n+                 (outgoingCommand -> sendAttempts > 0 &&\n+                  (1U << (outgoingCommand -> sendAttempts - 1)) >= peer -> timeoutLimit)) &&\n                  ENET_TIME_DIFFERENCE (host -> serviceTime, peer -> earliestTimeout) >= peer -> timeoutMinimum)))\n        {\n           enet_protocol_notify_disconnect (host, peer, event);\n",
+          "provenance": {
+            "kind": "local_reviewed_guard",
+            "upstream_search_date": "2026-10-25",
+            "cgutman_protocol_reference": "https://github.com/cgutman/enet/blob/78cc9b4b03bdd4f95c277391cac6e0951407072b/protocol.c",
+            "lsalzman_protocol_reference": "https://github.com/lsalzman/enet/blob/8be2368a8001f28db44e81d5939de5e613025023/protocol.c",
+            "search_result": "Latest protocol.c commits in both repositories retain the unguarded shift; inspected 100 cgutman and 97 lsalzman protocol.c commits and GitHub issue searches for shift timeout (zero matches). Fragment-shift fix 7c07702 is unrelated; no existing timeout-shift fix was found.",
+            "original_observation": "Native AppleClang UBSan halt-on-error in real T069 silent-loss E2E: protocol.c:1378:21 shift exponent 32 is too large for 32-bit unsigned int; enet_protocol_check_timeouts -> enet_protocol_send_outgoing_commands -> enet_host_service -> sp5_control_transport_step -> input_owner. Independently reproduced by the deterministic timeout unit test at attempt 33.",
+            "rationale": "For a 32-bit unsigned threshold, mathematical 2^(attempts-1) always meets timeoutLimit when attempts >32; short-circuit before shifting. Preserve exact defined comparisons for attempts 1..32; zero has no transmitted attempt and uses only the absolute timeout. Keep minimum/maximum deadlines and retransmission scheduling unchanged.",
+            "target_validation": "T043 firmware-13.60 ENet smoke used the prior build without this guard. No on-device result for this patch; portable tests are not hardware evidence."
+          }
+        }
+      ],
+      "wire_validation": {
+        "counterpart": "rusty_enet 0.4.0; Cargo.lock checksum matches tools/moonlight-mcp lock",
+        "host_status": "passed actual IPv4 UDP exchange, CONNECT data 0x12345678, 48 channels, reliable channels 0/1/18/47, unsequenced payload, 4096-byte fragmentation/reassembly, reliable channel-zero replies and graceful disconnect",
+        "target_status": "passed 2026-10-25 firmware 13.60: exact six-message IPv4 UDP exchange with rusty_enet 0.4.0, 48 channels, CONNECT data, unsequenced/reliable, 4096-byte fragmentation/reassembly and graceful disconnect; raw directional datagrams retained",
+        "ipv6_runtime": "unverified; source supports IPv6, IPv4 results do not establish IPv6 target interoperability"
+      },
+      "reference": "tools/moonlight-mcp/docs/protocol-notes.md section 11; research-target-dependencies.md"
+    }
+  },
+  "integrity_policy": {
+    "download_directory": "Each archive was downloaded into its own newly created empty directory under /Volumes/4TB_Drive/tmp/sunshine-t001-t002; no archive code was executed",
+    "verification_scope": "Recorded hashes identify actual downloaded bytes; a computed digest without a publisher digest or signature is not independent publisher authentication",
+    "missing_checksums": "Use sha256=null with verification status unverified and a reason; never synthesize a digest",
+    "release_inputs": "Release tooling must fail closed on missing, mismatched, or unverified selected build inputs; portable setup does not assert release readiness"
+  },
+  "licensing_work": "Excluded by owner instruction; no license audit performed or represented as passed"
+}

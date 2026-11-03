@@ -1,0 +1,148 @@
+name: PS5 console ELF (build only)
+
+# Builds the provisional PAIR/WEB/STATUS-only console composition from pinned
+# inputs. This workflow links an ELF and checks its checksum; it deploys
+# nothing and makes no console-run, hardware, capture or streaming claim.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PS5_SDK_REPOSITORY: https://github.com/ps5-payload-dev/sdk.git
+  PS5_SDK_COMMIT: a7685ce8e97ce1f8a4f38253a41d54241c9124f1
+  PS5_OPENSSL_VERSION: '3.5.9'
+  PS5_OPENSSL_COMMIT: 45e844fa2a14ec92d146bd8f5778ac130b6625fb
+  PS5_OPENSSL_URL: https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
+  PS5_OPENSSL_SHA256: 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+
+jobs:
+  build:
+    name: Pinned target and portable host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake perl make patch git curl \
+            ca-certificates libtinfo5 binutils
+
+      - name: Pinned LLVM 18.1.8
+        uses: KyleMayes/install-llvm-action@a7a1a882e2d06ebe05d5bb97c3e1f8c984ae96fc # v2.0.7
+        with:
+          version: '18.1.8'
+          directory: ${{ runner.temp }}/llvm
+
+      - name: Require the exact LLVM toolchain
+        run: |
+          echo "LLVM_CONFIG=$LLVM_PATH/bin/llvm-config" >> "$GITHUB_ENV"
+          echo "PATH=$LLVM_PATH/bin:$PATH" >> "$GITHUB_ENV"
+          test "$("$LLVM_PATH/bin/llvm-config" --version)" = 18.1.8
+
+      - name: Exact pinned PS5 payload SDK commit
+        run: |
+          source_tree="$RUNNER_TEMP/ps5-payload-sdk-source"
+          sdk="$RUNNER_TEMP/ps5-payload-sdk"
+          git init --quiet "$source_tree"
+          git -C "$source_tree" remote add origin "$PS5_SDK_REPOSITORY"
+          git -C "$source_tree" fetch --quiet --depth 1 origin "$PS5_SDK_COMMIT"
+          test "$(git -C "$source_tree" rev-parse FETCH_HEAD)" = "$PS5_SDK_COMMIT"
+          git -C "$source_tree" checkout --quiet --detach FETCH_HEAD
+          test -d "$source_tree/crt"
+          test -d "$source_tree/include"
+          make -C "$source_tree" DESTDIR="$sdk" LLVM_CONFIG="$LLVM_CONFIG" install
+          test -x "$sdk/bin/prospero-clang"
+          test -s "$sdk/target/lib/libc.a"
+          test -s "$sdk/target/include/sys/socket.h"
+          printf '%s\n' "$PS5_SDK_COMMIT" > "$sdk/.sdk-commit"
+          echo "PS5_PAYLOAD_SDK=$sdk" >> "$GITHUB_ENV"
+
+      - name: Verified OpenSSL 3.5.9 archive and tag commit
+        run: |
+          source_root="$RUNNER_TEMP/openssl-source"
+          archive="$source_root/openssl-3.5.9.tar.gz"
+          mkdir -p "$source_root"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            "$PS5_OPENSSL_URL" -o "$archive"
+          echo "$PS5_OPENSSL_SHA256  $archive" | sha256sum --check --strict
+          peeled=$(git ls-remote --tags https://github.com/openssl/openssl \
+            'refs/tags/openssl-3.5.9^{}' | cut -f1)
+          test "$peeled" = "$PS5_OPENSSL_COMMIT"
+          tar --extract --gzip --file "$archive" --directory "$source_root"
+          version_file="$source_root/openssl-3.5.9/VERSION.dat"
+          major=$(sed -n 's/^MAJOR=//p' "$version_file")
+          minor=$(sed -n 's/^MINOR=//p' "$version_file")
+          patch=$(sed -n 's/^PATCH=//p' "$version_file")
+          test "$major.$minor.$patch" = "$PS5_OPENSSL_VERSION"
+          echo "PS5_OPENSSL_DIR=$source_root/openssl-3.5.9" >> "$GITHUB_ENV"
+
+      - name: Build target OpenSSL static libraries
+        run: |
+          test -x "$PS5_PAYLOAD_SDK/bin/prospero-clang"
+          test "$("$LLVM_CONFIG" --version)" = 18.1.8
+          export LLVM_CONFIG
+          cd "$PS5_OPENSSL_DIR"
+          CC="$PS5_PAYLOAD_SDK/bin/prospero-clang" \
+          AR="$PS5_PAYLOAD_SDK/bin/prospero-ar" \
+          RANLIB="$PS5_PAYLOAD_SDK/bin/prospero-ranlib" \
+            ./Configure BSD-x86_64 no-shared no-dso no-module no-tests no-asm no-secure-memory \
+            no-devcryptoeng --with-rand-seed=os --libdir=lib -Werror
+          make -j"$(nproc)" build_libs
+          test -s libssl.a
+          test -s libcrypto.a
+          test -s include/openssl/ssl.h
+
+      - name: Build console ELF with warning-free pinned sources
+        run: |
+          env | grep -E '^(PS5_PAYLOAD_SDK|PS5_OPENSSL_DIR|LLVM_CONFIG)=' | sort
+          PS5_PAYLOAD_SDK="$PS5_PAYLOAD_SDK" \
+          PS5_OPENSSL_DIR="$PS5_OPENSSL_DIR" \
+          PS5_OUTPUT=dist/sunshineps5.elf \
+          LLVM_CONFIG="$LLVM_CONFIG" \
+            bash scripts/build-ps5.sh
+
+      - name: Verify ELF and checksum (not a console run)
+        run: |
+          test -s dist/sunshineps5.elf
+          test -s dist/sunshineps5.sha256
+          (cd dist && sha256sum --check --strict sunshineps5.sha256)
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+
+          data = Path("dist/sunshineps5.elf").read_bytes()
+          if data[:4] != b"\x7fELF":
+              raise SystemExit("not an ELF file")
+          if data[4] != 2 or data[5] != 1:
+              raise SystemExit("not a 64-bit little-endian ELF")
+          if struct.unpack_from("<H", data, 18)[0] != 62:
+              raise SystemExit("not an x86-64 ELF")
+          print("ELF64 x86-64 build artifact verified; no console execution claimed")
+          PY
+
+      - name: Build and run portable host tests
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/portable-build" -DBUILD_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER="$LLVM_PATH/bin/clang"
+          cmake --build "$RUNNER_TEMP/portable-build" --parallel "$(nproc)"
+          ctest --test-dir "$RUNNER_TEMP/portable-build" --no-tests=error \
+            -LE pending-core --output-on-failure
+
+      - name: Upload build-only artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sunshineps5-console-elf
+          path: |
+            dist/sunshineps5.elf
+            dist/sunshineps5.sha256
+          if-no-files-found: error

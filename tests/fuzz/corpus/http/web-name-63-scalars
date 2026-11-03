@@ -1,0 +1,7 @@
+PATCH /api/v1/devices/df7e70e5021544f4834bbee64a9e3789febc4be81470df629cad6ddb03320a5c HTTP/1.1
+Host: 10.0.0.2:47990
+Content-Type: application/json
+X-SP5-Token: @TOKEN@
+Content-Length: @LEN@
+
+{"name":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}

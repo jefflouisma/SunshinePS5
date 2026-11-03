@@ -1,0 +1,2 @@
+GET /pair?uniqueid=f&phrase=getservercert&salt=000102030405060708090a0b0c0d0e0&clientcert=00 HTTP/1.1
+

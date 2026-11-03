@@ -1,0 +1,4 @@
+a=x-nv-video[0].clientViewportWd:1280
+a=x-nv-video[0].clientViewportHt:720
+a=x-nv-video[0].maxFPS:60
+a=x-nv-vqos[0].bw.maximumBitrateKbps:500

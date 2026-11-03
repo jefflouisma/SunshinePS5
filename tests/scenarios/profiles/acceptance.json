@@ -1,0 +1,658 @@
+{
+  "schema_version": "1.0.0",
+  "profile_version": "1.0.0",
+  "source": "specs/001-moonlight-streaming-host/spec.md#success-criteria-mandatory",
+  "measurement_contract": "specs/001-moonlight-streaming-host/contracts/measurement-evidence.md",
+  "status": "definitions_only_no_acceptance_results",
+  "verdict_policy": {
+    "precedence": [
+      "Incomplete",
+      "Fail",
+      "Pass"
+    ],
+    "preserve_demonstrated_failures_under_incomplete": true,
+    "pass_requires_all_required_checks_valid_and_passing": true,
+    "missing_or_unreliable_required_evidence": "Incomplete",
+    "unresolved_required_target": "Incomplete",
+    "uncertainty_straddling_boundary": "Incomplete",
+    "missing_numeric_value": null,
+    "empty_population": "Incomplete",
+    "required_set_and_profile_fixed_before_execution": true,
+    "remove_or_relabel_missing_criterion_inapplicable": false,
+    "threshold_rounding_to_pass": false,
+    "exit_codes": {
+      "Pass": 0,
+      "Fail": 1,
+      "Incomplete": 2,
+      "invalid_invocation": 64
+    },
+    "percentile": "nearest rank ceil(p * N / 100), one-based; missing population or selected overflow rank is unavailable"
+  },
+  "required_declarations": [
+    "scenario_id",
+    "profile_id",
+    "profile_version",
+    "release_sequence",
+    "required_criteria",
+    "host_revision",
+    "firmware",
+    "client_versions",
+    "requested_and_chosen_mode_and_bitrate",
+    "network",
+    "controller_workload",
+    "observation_intervals",
+    "frame_population",
+    "game_and_reference_scene_ids",
+    "clock_domains_resolution_conversion_uncertainty",
+    "evidence_sources",
+    "calibration_ids",
+    "local_artifact_refs"
+  ],
+  "profiles": {
+    "ps5_release_first": {
+      "purpose": "PS5 release acceptance for all five stories",
+      "release_sequence": {
+        "operator": "eq",
+        "value": 1
+      },
+      "required_criteria": [
+        "SC-001",
+        "SC-002",
+        "SC-003",
+        "SC-004",
+        "SC-005",
+        "SC-006",
+        "SC-007",
+        "SC-008",
+        "SC-009",
+        "SC-010",
+        "SC-011",
+        "SC-012",
+        "SC-013",
+        "SC-014"
+      ],
+      "declared_exclusions": [
+        "SC-014.prior_release_median_regression"
+      ],
+      "exclusion_reason": "First release has no prior release; absolute floor and absolute median gate remain required",
+      "additional_required_gates": [
+        "full_pipeline",
+        "resource_budgets",
+        "required_ci_and_constitution_gates"
+      ]
+    },
+    "ps5_release_subsequent": {
+      "purpose": "PS5 release acceptance for all five stories",
+      "release_sequence": {
+        "operator": "gte",
+        "value": 2
+      },
+      "required_criteria": [
+        "SC-001",
+        "SC-002",
+        "SC-003",
+        "SC-004",
+        "SC-005",
+        "SC-006",
+        "SC-007",
+        "SC-008",
+        "SC-009",
+        "SC-010",
+        "SC-011",
+        "SC-012",
+        "SC-013",
+        "SC-014"
+      ],
+      "declared_exclusions": [],
+      "missing_prior_release_baseline": "Incomplete",
+      "additional_required_gates": [
+        "full_pipeline",
+        "resource_budgets",
+        "required_ci_and_constitution_gates"
+      ]
+    },
+    "reference_host_compatibility": {
+      "purpose": "Independent test-client validation against a versioned reference host",
+      "can_establish_ps5_release_acceptance": false,
+      "required_criteria": [
+        "REF-pairing",
+        "REF-stream",
+        "REF-controller",
+        "REF-teardown",
+        "REF-recording",
+        "REF-report"
+      ],
+      "declared_exclusions": [],
+      "required_environment": [
+        "reference_host_version",
+        "test_client_revision",
+        "official_client_conformance_sources"
+      ],
+      "checks": {
+        "REF-pairing": "Complete official-compatible proof flow; reject invalid proofs",
+        "REF-stream": "List applications, negotiate declared settings, receive real video and stereo audio",
+        "REF-controller": "Observe defined controller workload received/applied by reference host; send or ACK alone is insufficient",
+        "REF-teardown": "Observe session termination and controller/resource cleanup",
+        "REF-recording": "Validate native SDR and ten-bit HDR acquisition/comparison, timestamp alignment and known fixture differences with provenance",
+        "REF-report": "Emit required evidence fields and correct Pass/Fail/Incomplete outcomes without invented values"
+      }
+    },
+    "console_diagnostic": {
+      "purpose": "Diagnostic SunshinePS5 console host evidence; not release acceptance",
+      "can_establish_ps5_release_acceptance": false,
+      "required_criteria": [
+        "CON-pairing",
+        "CON-stream",
+        "CON-input",
+        "CON-teardown",
+        "CON-report"
+      ],
+      "declared_exclusions": [],
+      "required_environment": [
+        "console_firmware",
+        "test_client_revision"
+      ],
+      "checks": {
+        "CON-pairing": "Real client pairing against the console host",
+        "CON-stream": "Negotiate and receive console video/audio",
+        "CON-input": "Console host received every declared delivery action; receipt is not console delivery",
+        "CON-teardown": "Clean console session teardown",
+        "CON-report": "Emit bounded console diagnostic evidence without invented values"
+      }
+    }
+  },
+  "required_sets": {
+    "official_platforms": [
+      "Apple TV",
+      "iPhone/iPad",
+      "Android",
+      "Windows",
+      "macOS",
+      "Linux"
+    ],
+    "browsers": [
+      "Safari on iOS",
+      "Chrome on Android",
+      "Chrome on desktop",
+      "Edge on desktop",
+      "Firefox on desktop",
+      "Safari on desktop"
+    ],
+    "phone_journeys": [
+      "enter PIN",
+      "revoke with confirmation",
+      "metrics on",
+      "metrics off"
+    ],
+    "refusal_scenarios": [
+      "unpaired session attempt",
+      "revoked session attempt",
+      "revoke active session",
+      "revoked reconnect",
+      "revoked reconnect after host restart"
+    ],
+    "freeze_before_run": [
+      "exact official client and browser versions",
+      "all applicable matrix entries",
+      "named games and reference scenes",
+      "controller actions",
+      "refusal identities and attempts",
+      "comparison population and alignment policy"
+    ],
+    "missing_required_member": "Incomplete"
+  },
+  "populations": {
+    "wired_sdr_1080p60": {
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "dynamic_range": "sdr",
+      "network": "wired local",
+      "minimum_duration_seconds": 1800
+    },
+    "wired_hdr_1080p60": {
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "dynamic_range": "hdr",
+      "network": "wired local",
+      "minimum_duration_seconds": 1800
+    },
+    "frame_policy": "Declare complete run population before execution; preserve captured, encode-accepted, encode-completed, network-submitted and reason-coded host-drop counts separately",
+    "client_loss_policy": "Report network loss and incomplete/recoverable client frames separately; never infer host drops from client loss",
+    "unknown_protocol_header_policy": "Zero/repeated/unavailable fields are not zero latency; record counts and reasons; missing required population is Incomplete",
+    "fidelity_policy": "Full declared native-resolution compared-frame population, not the spike's 300-frame sample; unmatched frames or unreliable required alignment make affected evidence Incomplete"
+  },
+  "criteria": {
+    "SC-001": {
+      "source": "spec.md#SC-001; measurement-evidence.md success-criterion matrix",
+      "authority": "Official Apple TV and observed first-time participants; host already running; prompts only, no documentation",
+      "thresholds": [
+        {
+          "metric": "participants",
+          "operator": "eq",
+          "value": 10
+        },
+        {
+          "metric": "first_attempt_successes",
+          "operator": "gte",
+          "value": 9
+        },
+        {
+          "metric": "successful_participant_pair_to_play_seconds",
+          "operator": "lte",
+          "value": 300
+        }
+      ],
+      "required_evidence": [
+        "per-participant start/end and outcome",
+        "first attempt",
+        "gameplay observed"
+      ]
+    },
+    "SC-002": {
+      "source": "spec.md#SC-002",
+      "authority": "Previously paired official client, selection to first presented console image on common observation timebase",
+      "thresholds": [
+        {
+          "metric": "selection_to_first_presented_image_seconds",
+          "operator": "lte",
+          "value": 5
+        }
+      ],
+      "required_evidence": [
+        "selection event",
+        "presentation event",
+        "pairing persistence across host and console restart"
+      ],
+      "insufficient_evidence": "Tool request-to-first-received-frame cannot establish presentation"
+    },
+    "SC-003": {
+      "source": "spec.md#SC-003; protocol-notes.md section 6",
+      "population": "wired_sdr_1080p60",
+      "authority": "Compatible Moonlight protocol/overlay host processing latency, capture timestamp to pre-send header measurement",
+      "thresholds": [
+        {
+          "metric": "fraction_of_declared_frames_with_protocol_latency_strictly_below_limit",
+          "operator": "gte",
+          "value": 0.99,
+          "limit": {
+            "operator": "lt",
+            "value": 16.7,
+            "units": "ms"
+          }
+        }
+      ],
+      "required_evidence": [
+        "all declared frame observations",
+        "0.1 ms wire quantization and uncertainty",
+        "unavailable header count and reasons"
+      ],
+      "full_pipeline_is_separate": true
+    },
+    "SC-004": {
+      "source": "spec.md#SC-004",
+      "population": "wired_sdr_1080p60",
+      "authority": "Host-attributed dropped frames over explicitly declared host-frame denominator",
+      "thresholds": [
+        {
+          "metric": "host_dropped_frames_divided_by_declared_host_frame_population",
+          "operator": "lt",
+          "value": 0.001
+        }
+      ],
+      "required_evidence": [
+        "captured, encode-accepted, encode-completed, submitted and host-dropped counts",
+        "denominator definition",
+        "drop reasons",
+        "separate client/network loss"
+      ]
+    },
+    "SC-005": {
+      "source": "spec.md#SC-005; data-model.md Measurement and Input Evidence",
+      "authority": "Correlated authenticated accepted host input-arrival to documented successful console-delivery boundary on same host clock",
+      "thresholds": [
+        {
+          "metric": "fraction_of_declared_controller_inputs_delivered_strictly_below_limit",
+          "operator": "gte",
+          "value": 0.99,
+          "limit": {
+            "operator": "lt",
+            "value": 2,
+            "units": "ms"
+          }
+        }
+      ],
+      "required_evidence": [
+        "event/session/controller IDs",
+        "receipt before parsing/authentication",
+        "successful delivery endpoint provenance",
+        "failed deliveries",
+        "visible response to defined workload"
+      ],
+      "insufficient_evidence": "Client send, transport ACK, host receipt alone or client round trip"
+    },
+    "SC-006": {
+      "source": "spec.md#SC-006; constitution II and III",
+      "authority": "Continuous on-device stream with external retained first/last summaries",
+      "thresholds": [
+        {
+          "metric": "continuous_duration_seconds",
+          "operator": "gte",
+          "value": 7200
+        },
+        {
+          "metric": "disconnect_count",
+          "operator": "eq",
+          "value": 0
+        },
+        {
+          "metric": "crash_count",
+          "operator": "eq",
+          "value": 0
+        },
+        {
+          "metric": "host_memory_growth_bytes",
+          "operator": "lte",
+          "value": 0
+        },
+        {
+          "metric": "last_window_protocol_latency_p99_minus_first_window_p99_us",
+          "operator": "lte",
+          "value": 0
+        }
+      ],
+      "comparison_windows_seconds": {
+        "first": [
+          0,
+          600
+        ],
+        "last": "final 600 seconds of declared run"
+      },
+      "required_evidence": [
+        "media/driver/core/metrics memory accounting",
+        "first and last protocol p99 before raw expiry",
+        "independent full-pipeline summaries",
+        "crash/disconnect observations"
+      ],
+      "fake_only_evidence": "Incomplete"
+    },
+    "SC-007": {
+      "source": "spec.md#SC-007",
+      "authority": "Current unmodified official Moonlight clients, exact versions frozen for release",
+      "required_set": "official_platforms",
+      "thresholds": [
+        {
+          "metric": "required_matrix_entries_pairing_and_streaming_success_fraction",
+          "operator": "eq",
+          "value": 1
+        }
+      ],
+      "required_evidence": [
+        "per-entry client/version/device and pairing/stream observations"
+      ],
+      "official_client_authoritative_on_tool_disagreement": true
+    },
+    "SC-008": {
+      "source": "spec.md#SC-008",
+      "authority": "Repeated matched on-device metrics-off/on protocol latency windows with same workload, mode and network",
+      "thresholds": [
+        {
+          "metric": "100 * (metrics_on_protocol_p99 / metrics_off_protocol_p99 - 1)",
+          "operator": "lte",
+          "value": 2,
+          "units": "percent"
+        }
+      ],
+      "required_evidence": [
+        "both protocol p99 populations",
+        "repeat count",
+        "window durations",
+        "variation and noise resolution",
+        "CPU/memory observations"
+      ],
+      "zero_baseline_or_unresolved_noise": "Incomplete",
+      "fake_only_evidence": "Incomplete"
+    },
+    "SC-009": {
+      "source": "spec.md#SC-009",
+      "authority": "Comparable local-display sequences during streaming and without SunshinePS5 running",
+      "thresholds": [
+        {
+          "metric": "named_games",
+          "operator": "gte",
+          "value": 5
+        },
+        {
+          "metric": "games_with_visible_stutter_or_slowdown",
+          "operator": "eq",
+          "value": 0
+        }
+      ],
+      "required_evidence": [
+        "agreed rubric frozen before observation",
+        "fixed named games/scenes/settings",
+        "matched baselines and side-by-side observations"
+      ],
+      "rubric_status": "unresolved_until_agreed_in_T044_T117"
+    },
+    "SC-010": {
+      "source": "spec.md#SC-010; FR-043",
+      "authority": "Observed unpaired/revoked identity refusal including active revocation and later reconnect",
+      "required_set": "refusal_scenarios",
+      "thresholds": [
+        {
+          "metric": "refused_unauthorized_session_attempts_divided_by_declared_attempts",
+          "operator": "eq",
+          "value": 1
+        },
+        {
+          "metric": "active_revocation_to_session_stop_seconds",
+          "operator": "lte",
+          "value": 2
+        }
+      ],
+      "required_evidence": [
+        "nonempty complete declared identity/scenario population",
+        "authorization invalidated before acknowledgement",
+        "revocation durability after restart",
+        "other paired device remains authorized"
+      ]
+    },
+    "SC-011": {
+      "source": "spec.md#SC-011; FR-014",
+      "authority": "Observed completed browser journeys from web home at 360 CSS pixels",
+      "required_sets": [
+        "browsers",
+        "phone_journeys"
+      ],
+      "thresholds": [
+        {
+          "metric": "viewport_width_css_pixels",
+          "operator": "eq",
+          "value": 360
+        },
+        {
+          "metric": "counted_taps_each_journey",
+          "operator": "lte",
+          "value": 3
+        },
+        {
+          "metric": "horizontal_scrolling_or_zoom_required",
+          "operator": "eq",
+          "value": false
+        }
+      ],
+      "tap_policy": "Count navigation, submission and confirmation; exclude typing and keyboard dismissal, but count submission even if it dismisses keyboard; retain required confirmations",
+      "required_evidence": [
+        "every applicable browser/journey entry",
+        "exact versions and viewport",
+        "observed navigation/tap counts"
+      ]
+    },
+    "SC-012": {
+      "source": "spec.md#SC-012; measurement-evidence.md success-criterion matrix",
+      "population": "wired_hdr_1080p60",
+      "authority": "Explicit HDR run using the protocol-latency and host-drop authorities and full populations of the SDR checks",
+      "thresholds": [
+        {
+          "metric": "fraction_of_declared_frames_with_protocol_latency_strictly_below_limit",
+          "operator": "gte",
+          "value": 0.99,
+          "limit": {
+            "operator": "lt",
+            "value": 16.7,
+            "units": "ms"
+          }
+        },
+        {
+          "metric": "host_dropped_frames_divided_by_declared_host_frame_population",
+          "operator": "lt",
+          "value": 0.001
+        }
+      ],
+      "required_evidence": [
+        "1800 seconds wired HDR 1920x1080 at 60 fps",
+        "protocol latency population and unavailable counts",
+        "host-attributed drops and denominator"
+      ],
+      "sdr_or_short_visual_check_substitution": false
+    },
+    "SC-013": {
+      "source": "spec.md#SC-013; spec.md calibration assumption; FR-025",
+      "authority": "Every official platform with HDR display, actual sourced/requested HDR, native 1080p60 ten-bit PQ/BT.2020 stream and calibrated reference",
+      "required_set": "official_platforms",
+      "thresholds": [
+        {
+          "metric": "required_hdr_matrix_entries_reporting_hdr_when_sourced_and_requested_fraction",
+          "operator": "eq",
+          "value": 1
+        },
+        {
+          "metric": "observed_banding_clipping_or_washed_out_color",
+          "operator": "eq",
+          "value": false
+        }
+      ],
+      "objective_fidelity_target": {
+        "status": "resolved",
+        "metric": "median_luma_ssim",
+        "operator": "gte",
+        "value": 0.97,
+        "native_signal_peak": 1023,
+        "per_frame_floor": {
+          "fraction_operator": "gte",
+          "fraction": 0.99,
+          "all_of": [
+            {
+              "metric": "luma_ssim",
+              "operator": "gte",
+              "value": 0.95
+            },
+            {
+              "metric": "luma_psnr_db",
+              "operator": "gte",
+              "value": 35
+            },
+            {
+              "metric": "cb_psnr_db",
+              "operator": "gte",
+              "value": 40
+            },
+            {
+              "metric": "cr_psnr_db",
+              "operator": "gte",
+              "value": 40
+            }
+          ],
+          "perfect_planes_satisfy_psnr_floor": true
+        },
+        "pattern_rules": {
+          "authority": "Fixed known-source HDR ramp/patch scenes compared with matched native HDMI reference; separately retain source-to-reference chain calibration",
+          "neutral_ramp_minimum_distinct_integer_column_medians": 512,
+          "maximum_backward_step_native_codes": 4,
+          "maximum_neutral_and_patch_median_error_native_codes": 8,
+          "interior_clipped_columns": 0,
+          "reference_endpoint_guard_native_codes": 8
+        },
+        "unmatched_required_frames": "Incomplete",
+        "closure": "Owner-approved T034 native HDR calibration refinement; per-run calibration, independent source metadata and all platform/visual evidence remain required",
+        "required": true
+      },
+      "required_evidence": [
+        "all versioned HDR display/platform entries",
+        "agreed games/reference scenes",
+        "side-by-side observations",
+        "per-frame native ten-bit reference comparison",
+        "independent console-source metadata matched to signaled metadata in same output epoch",
+        "calibration identity"
+      ],
+      "helper_defaults_or_usb_pixels_as_source_metadata": false
+    },
+    "SC-014": {
+      "source": "spec.md#SC-014; spec.md calibration assumption",
+      "authority": "Full declared simultaneous native 1920x1080 60 fps SDR stream/HDMI compared-frame population",
+      "thresholds": [
+        {
+          "metric": "fraction_of_declared_stream_frames_with_ssim_at_least_floor",
+          "operator": "gte",
+          "value": 0.99,
+          "floor": {
+            "operator": "gte",
+            "value": 0.7
+          }
+        }
+      ],
+      "absolute_median_target": {
+        "status": "resolved",
+        "metric": "median_luma_ssim",
+        "operator": "gte",
+        "value": 0.95,
+        "closure": "Owner-approved T034 SDR target informed by research-r4-calibration.md; per-run calibration and complete-population evidence remain required",
+        "required": true
+      },
+      "prior_release_median_regression": {
+        "metric": "prior_release_median_ssim_minus_current_median_ssim",
+        "operator": "lte",
+        "value": 0.01,
+        "required_from_release_sequence": 2,
+        "only_exclusion": "release_sequence equals 1, declared before run",
+        "missing_applicable_baseline": "Incomplete",
+        "identical_reference_scenes_required": true
+      },
+      "required_evidence": [
+        "per-frame SSIM and PSNR with alignment and exclusion records",
+        "complete declared frame/timestamp population",
+        "calibration identity",
+        "fixed reference scenes",
+        "approved FR-057 wording disposition"
+      ],
+      "sample_cap_substitution": false
+    }
+  },
+  "additional_gates": {
+    "full_pipeline": {
+      "source": "constitution II; measurement-evidence.md",
+      "metric": "capture_start_to_final_packet_network_submission_p99",
+      "operator": "lt",
+      "limit": "exact negotiated frame interval, 1000/fps milliseconds",
+      "sum_of_independent_stage_percentiles_allowed": false
+    },
+    "resource_budgets": {
+      "source": "plan.md Declared resource budgets",
+      "status": "provisional_targets_require_on_device_verification",
+      "host_bytes_lte": 268435456,
+      "media_bytes_lte": 134217728,
+      "metrics_bytes_lte": 83886080,
+      "core_bytes_lte": 50331648,
+      "streaming_cpu_seconds_per_10_seconds_lte": 10,
+      "idle_cpu_seconds_per_10_seconds_lte": 0.5,
+      "missing_driver_accounting": "Incomplete"
+    },
+    "required_ci_and_constitution_gates": {
+      "source": "constitution Development Workflow and Quality Gates; tasks.md T119",
+      "required": true,
+      "missing_required_job_or_hardware_evidence": "Incomplete"
+    }
+  }
+}

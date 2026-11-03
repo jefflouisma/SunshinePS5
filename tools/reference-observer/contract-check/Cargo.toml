@@ -1,0 +1,8 @@
+[package]
+name = "reference-observer-contract-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+moonlight-mcp = { path = "../../moonlight-mcp" }

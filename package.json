@@ -1,0 +1,16 @@
+{
+  "name": "sunshineps5-quality",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local browser test and web quality tooling; no runtime frontend dependencies",
+  "scripts": {
+    "quality": "./scripts/check-quality.sh",
+    "test:browser": "playwright test",
+    "format:check": "biome format --indent-style=space --indent-width=2 --line-width=100 package.json",
+    "lint": "biome lint --error-on-warnings package.json"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.3",
+    "@playwright/test": "1.64.1"
+  }
+}

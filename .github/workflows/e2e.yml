@@ -1,0 +1,186 @@
+name: Portable independent-client E2E
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-fake:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTFLAGS: -Dwarnings
+      PYTHONDONTWRITEBYTECODE: '1'
+      ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Task-local tool and artifact roots
+        run: |
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/playwright-browsers" >> "$GITHUB_ENV"
+      - name: Native compiler and fixture codec prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes pkg-config libtinfo5 libx264-dev zlib1g-dev
+      - name: Pinned LLVM 18
+        uses: KyleMayes/install-llvm-action@a7a1a882e2d06ebe05d5bb97c3e1f8c984ae96fc # v2.0.7
+        with:
+          version: '18.1.8'
+          directory: ${{ runner.temp }}/llvm
+      - name: Pinned Rust
+        run: rustup toolchain install 1.93.0 --profile minimal --no-self-update
+      - name: Verified local Opus 1.5.2 for the independent decoder
+        run: |
+          mkdir "$TMPDIR/opus-source"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz \
+            -o "$TMPDIR/opus-source/opus-1.5.2.tar.gz"
+          python - "$TMPDIR/opus-source" <<'PY'
+          import hashlib
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          directory = Path(sys.argv[1])
+          archive = directory / "opus-1.5.2.tar.gz"
+          expected = "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
+          if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
+              raise SystemExit("Opus archive checksum mismatch")
+          with tarfile.open(archive) as source:
+              source.extractall(directory, filter="data")
+          PY
+          cmake -S "$TMPDIR/opus-source/opus-1.5.2" -B "$TMPDIR/opus-build" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$TMPDIR/opus" \
+            -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DOPUS_BUILD_PROGRAMS=OFF
+          cmake --build "$TMPDIR/opus-build" --parallel 4
+          cmake --install "$TMPDIR/opus-build"
+          test "$(PKG_CONFIG_PATH="$TMPDIR/opus/lib/pkgconfig" pkg-config --modversion opus)" = 1.5.2
+          echo "PKG_CONFIG_PATH=$TMPDIR/opus/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "OPUS_STATIC=1" >> "$GITHUB_ENV"
+      - name: Verified FFmpeg 8.0.1 for synthetic H.264 fixture generation and decode
+        run: |
+          mkdir "$TMPDIR/ffmpeg-source"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz \
+            -o "$TMPDIR/ffmpeg-source/ffmpeg-8.0.1.tar.xz"
+          python - "$TMPDIR/ffmpeg-source" <<'PY'
+          import hashlib
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          directory = Path(sys.argv[1])
+          archive = directory / "ffmpeg-8.0.1.tar.xz"
+          expected = "05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41"
+          if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
+              raise SystemExit("FFmpeg archive checksum mismatch")
+          with tarfile.open(archive) as source:
+              source.extractall(directory, filter="data")
+          PY
+          cd "$TMPDIR/ffmpeg-source/ffmpeg-8.0.1"
+          ./configure --prefix="$TMPDIR/ffmpeg" \
+            --disable-everything --disable-autodetect --disable-network \
+            --disable-doc --disable-debug --disable-x86asm --enable-ffmpeg --enable-ffprobe \
+            --enable-protocol=file,pipe --enable-demuxer=h264,rawvideo --enable-parser=h264 \
+            --enable-muxer=h264,null,rawvideo,image2 --enable-decoder=h264,wrapped_avframe,rawvideo \
+            --enable-encoder=libx264,wrapped_avframe,png,rawvideo --enable-filter=testsrc2,format,scale \
+            --enable-indev=lavfi --enable-libx264 --enable-zlib --enable-gpl
+          make -j4
+          make install
+          echo "$TMPDIR/ffmpeg/bin" >> "$GITHUB_PATH"
+      - name: Build the real portable core and independent client
+        run: |
+          cmake -S . -B "$TMPDIR/core-build" -DCMAKE_C_COMPILER="$LLVM_PATH/bin/clang"
+          cmake --build "$TMPDIR/core-build" --parallel 4
+          ctest --test-dir "$TMPDIR/core-build" --no-tests=error -LE pending-core --output-on-failure
+          rustup run 1.93.0 cargo build --locked --manifest-path tools/moonlight-mcp/Cargo.toml
+      - name: Pair, stream, input, revoke, partial-start cleanup, loss and restart
+        run: |
+          python tests/e2e/core_session.py \
+            --host-bin "$TMPDIR/core-build/tests/sp5_fake_host" \
+            --client-bin "$CARGO_TARGET_DIR/debug/moonlight-mcp" \
+            --output-root "$TMPDIR/core-e2e"
+      - name: Pinned browser runtime and every discovered browser suite
+        run: |
+          npm ci
+          node_modules/.bin/playwright install --with-deps chromium
+          # Routing-only RFC1918 source selection (no datagram), shared with core_session.py.
+          bind=$(python -c 'import sys; sys.path.insert(0, "tests/e2e"); import core_session; print(core_session.local_address())')
+          echo "SP5_PRIVATE_BIND=$bind" >> "$GITHUB_ENV"
+          echo "SP5_CLIENT_BIN=$CARGO_TARGET_DIR/debug/moonlight-mcp" >> "$GITHUB_ENV"
+          # Suites come from playwright.config.js discovery (tests/e2e/*_web.spec.js);
+          # an empty listing, or any suite file missing from it, fails this lane.
+          node_modules/.bin/playwright test --list > "$TMPDIR/browser-suites.txt"
+          python - "$TMPDIR/browser-suites.txt" <<'PY'
+          import sys
+          from pathlib import Path
+
+          listing = Path(sys.argv[1]).read_text()
+          suites = sorted(path.name for path in Path("tests/e2e").glob("*_web.spec.js"))
+          missing = [name for name in suites if name not in listing]
+          if not suites or missing:
+              raise SystemExit(f"Browser suite discovery failed: suites={suites} missing={missing}")
+          print(f"Discovered browser suites: {', '.join(suites)}")
+          PY
+          SP5_MANAGEMENT_BIN="$TMPDIR/core-build/tests/sp5_management_host" \
+            SP5_FAKE_HOST_BIN="$TMPDIR/core-build/tests/sp5_fake_host" \
+            SP5_CLIENT_BIN="$CARGO_TARGET_DIR/debug/moonlight-mcp" SP5_PRIVATE_BIND="$bind" \
+            npm run test:browser
+          python tests/e2e/metrics_retention.py \
+            --fixture "$TMPDIR/core-build/tests/sp5_metrics_retention" \
+            --management-bin "$TMPDIR/core-build/tests/sp5_management_host" \
+            --output "$TMPDIR/metrics-retention.json"
+      - name: ASan/UBSan host and the same independent-client cases
+        run: |
+          cmake -S . -B "$TMPDIR/core-sanitized" -DCMAKE_C_COMPILER="$LLVM_PATH/bin/clang" \
+            -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
+            -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+          cmake --build "$TMPDIR/core-sanitized" --parallel 4
+          ctest --test-dir "$TMPDIR/core-sanitized" --no-tests=error -LE pending-core --output-on-failure
+          python tests/e2e/core_session.py \
+            --host-bin "$TMPDIR/core-sanitized/tests/sp5_fake_host" \
+            --client-bin "$CARGO_TARGET_DIR/debug/moonlight-mcp" \
+            --output-root "$TMPDIR/core-e2e-sanitized"
+      - name: Sanitized discovered browser suites and virtual long-session cases
+        run: |
+          SP5_MANAGEMENT_BIN="$TMPDIR/core-sanitized/tests/sp5_management_host" \
+            SP5_FAKE_HOST_BIN="$TMPDIR/core-sanitized/tests/sp5_fake_host" \
+            npm run test:browser
+          python tests/e2e/metrics_retention.py \
+            --fixture "$TMPDIR/core-sanitized/tests/sp5_metrics_retention" \
+            --management-bin "$TMPDIR/core-sanitized/tests/sp5_management_host" \
+            --output "$TMPDIR/metrics-retention-sanitized.json"
+      - name: Preserve bounded software evidence without private state
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: portable-core-e2e
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/metrics-retention.json
+            ${{ runner.temp }}/metrics-retention-sanitized.json
+            ${{ runner.temp }}/core-e2e/e2e-result.json
+            ${{ runner.temp }}/core-e2e/*.report.json
+            ${{ runner.temp }}/core-e2e/host.jsonl
+            ${{ runner.temp }}/core-e2e/host.stderr
+            ${{ runner.temp }}/core-e2e-sanitized/e2e-result.json
+            ${{ runner.temp }}/core-e2e-sanitized/*.report.json
+            ${{ runner.temp }}/core-e2e-sanitized/host.jsonl
+            ${{ runner.temp }}/core-e2e-sanitized/host.stderr

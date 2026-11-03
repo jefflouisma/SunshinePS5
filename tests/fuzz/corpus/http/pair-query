@@ -1,0 +1,3 @@
+GET /pair?phrase=getservercert&salt=0011&clientcert=%41%00 HTTP/1.1
+Host: 10.1.2.3
+

@@ -1,0 +1,7 @@
+DELETE /api/v1/devices/559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd HTTP/1.1
+Host: 10.0.0.2:47990
+Content-Type: application/json
+X-SP5-Token: @TOKEN@
+Content-Length: @LEN@
+
+{"confirm":false}

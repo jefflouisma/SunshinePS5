@@ -1,0 +1,41 @@
+name: Pinned host and client dependency audit
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 9 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned client toolchain
+        run: rustup toolchain install 1.93.0 --profile minimal
+      - name: Audit locked versions, archives and known vulnerabilities
+        # Owner excluded licensing work; no license gate and no license-audit pass.
+        # No continue-on-error: findings and incomplete audits both fail this job.
+        env:
+          TMPDIR: ${{ runner.temp }}
+          AUDIT_REPORT_PATH: ${{ runner.temp }}/dependency-audit.json
+        run: ./scripts/audit-dependencies.sh
+      - name: Retain the actual audit result, including failures and incomplete checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dependency-audit
+          path: ${{ runner.temp }}/dependency-audit.json
+          if-no-files-found: error
+          retention-days: 14

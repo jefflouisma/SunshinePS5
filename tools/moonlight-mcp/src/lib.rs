@@ -1,0 +1,35 @@
+//! Independent protocol client modules shared by the CLI and integration tests.
+
+pub mod audio;
+pub mod cadence;
+pub mod capture_server;
+pub mod clock;
+pub mod codec;
+pub mod compare;
+pub mod config;
+pub mod control;
+pub mod crypto;
+pub mod decode;
+pub mod evidence;
+pub mod fec;
+pub mod hdr_capture;
+pub mod http;
+pub mod identity;
+pub mod imgcmp;
+pub mod input;
+pub mod mcp;
+pub mod measurements;
+pub mod nvhttp;
+pub mod pairing;
+pub mod recording;
+pub mod reference;
+pub mod reference_lifecycle;
+pub mod reference_recording;
+pub mod report;
+pub mod rtsp;
+pub mod runner;
+pub mod scenario;
+pub mod stats;
+pub mod tls;
+pub mod verdict;
+pub mod video;

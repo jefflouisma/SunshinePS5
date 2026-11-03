@@ -1,0 +1,3 @@
+GET /api/v1/devices HTTP/1.1
+Host: 10.0.0.2:47990
+

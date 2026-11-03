@@ -1,0 +1,87 @@
+name: Bounded parser fuzzing
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 9 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Every harness is built, listed in run.py and in this matrix
+        run: python3 -I tests/fuzz/run.py --check-targets
+  parsers:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        parser: [http, rtsp, control, input]
+    env:
+      ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Dependency build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libtinfo5 perl make patch
+      - name: Pinned LLVM 18
+        uses: KyleMayes/install-llvm-action@a7a1a882e2d06ebe05d5bb97c3e1f8c984ae96fc # v2.0.7
+        with:
+          version: '18.1.8'
+          directory: ${{ runner.temp }}/llvm
+      - name: Require this parser's source and reviewed corpus
+        env:
+          PARSER: ${{ matrix.parser }}
+        run: |
+          test -s "tests/fuzz/$PARSER.c"
+          test -d "tests/fuzz/corpus/$PARSER"
+          test -n "$(find "tests/fuzz/corpus/$PARSER" -type f -print -quit)"
+          test -s tests/fuzz/run.py
+      - name: Instrument core and required parser with ASan UBSan and coverage
+        env:
+          PARSER: ${{ matrix.parser }}
+        run: |
+          cmake -S . -B "$RUNNER_TEMP/fuzz-build" \
+            -DCMAKE_C_COMPILER="$LLVM_PATH/bin/clang" \
+            -DSP5_BUILD_FUZZERS=ON -DSP5_FUZZ_SANITIZERS=address,undefined
+          cmake --build "$RUNNER_TEMP/fuzz-build" --parallel 4 \
+            --target "${PARSER}_fuzz" "${PARSER}_replay"
+      - name: Time-boxed campaign and sanitized corpus/crash reproduction
+        env:
+          PARSER: ${{ matrix.parser }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          seconds=30
+          if [ "$EVENT_NAME" = schedule ]; then seconds=300; fi
+          python3 tests/fuzz/run.py --parser "$PARSER" \
+            --build "$RUNNER_TEMP/fuzz-build/tests/fuzz" \
+            --corpus "tests/fuzz/corpus/$PARSER" \
+            --artifacts "$RUNNER_TEMP/fuzz-artifacts" --seconds "$seconds"
+      - name: Retain bounded corpus logs and reproducers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-${{ matrix.parser }}
+          path: ${{ runner.temp }}/fuzz-artifacts/
+          retention-days: 7
+          if-no-files-found: error
+  required:
+    if: always()
+    needs: [targets, parsers]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Missing skipped or failed parser jobs cannot pass
+        env:
+          TARGETS_RESULT: ${{ needs.targets.result }}
+          PARSER_RESULT: ${{ needs.parsers.result }}
+        run: test "$TARGETS_RESULT" = success && test "$PARSER_RESULT" = success

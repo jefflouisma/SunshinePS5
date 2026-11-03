@@ -1,0 +1,452 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sunshineps5.local/schemas/1.0.0/evidence.schema.json",
+  "title": "Version 1 measurement and input evidence",
+  "description": "One measurement, not a run verdict. Null or omitted numeric values mean absence; no defaults fill evidence gaps. Bounds never represent an exact value. Synthetic provenance cannot establish hardware acceptance.",
+  "$comment": "Consumers must verify matching session/frame/event/clock IDs, interval ordering, count arithmetic, unit conversion, physical delivery authority, and uncertainty against criterion thresholds. These relational checks and verdict precedence belong to T016/T035; JSON Schema cannot prove them. Timestamps are integer microseconds in clock_domain; source_clock resolution and uncertainty are nanoseconds. Artifact paths are lexically local; consumers must enforce root containment including symlinks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "session_id",
+    "provenance",
+    "kind",
+    "source",
+    "clock_domain",
+    "source_clock",
+    "interval",
+    "units",
+    "resolution",
+    "uncertainty",
+    "uncertainty_reason",
+    "population",
+    "coverage",
+    "validity",
+    "reason",
+    "artifact_refs"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "id": { "$ref": "#/$defs/id" },
+    "session_id": { "$ref": "#/$defs/id" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "kind": {
+      "enum": [
+        "capture",
+        "encode",
+        "packetize",
+        "send",
+        "full_pipeline",
+        "protocol_latency",
+        "input_delivery",
+        "client_sent",
+        "transport_ack",
+        "host_received",
+        "console_delivered",
+        "client_receipt",
+        "host_drops",
+        "client_loss",
+        "audio_loss",
+        "audio_non_silence",
+        "bitrate",
+        "frame_interval",
+        "fidelity_ssim",
+        "fidelity_psnr",
+        "hdmi_relative_delay",
+        "hdr_metadata",
+        "operator_observation"
+      ]
+    },
+    "source": {
+      "enum": [
+        "host_pipeline",
+        "protocol_header",
+        "client_receipt",
+        "reference_recording",
+        "operator_observation"
+      ]
+    },
+    "frame_id": { "$ref": "#/$defs/counter" },
+    "event_id": { "$ref": "#/$defs/id" },
+    "controller_id": { "type": "integer", "minimum": 0, "maximum": 3 },
+    "authenticated": { "type": "boolean" },
+    "delivery_boundary": { "$ref": "#/$defs/reason" },
+    "clock_domain": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "source_clock": { "anyOf": [{ "$ref": "#/$defs/clock" }, { "type": "null" }] },
+    "interval": { "anyOf": [{ "$ref": "#/$defs/interval" }, { "type": "null" }] },
+    "units": {
+      "enum": [
+        "microseconds",
+        "0.1_milliseconds",
+        "milliseconds",
+        "seconds",
+        "frames",
+        "frames_per_second",
+        "packets",
+        "events",
+        "bits_per_second",
+        "ratio",
+        "dB",
+        "boolean"
+      ]
+    },
+    "resolution": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+    "uncertainty": { "type": ["number", "null"], "minimum": 0 },
+    "uncertainty_reason": { "anyOf": [{ "$ref": "#/$defs/reason" }, { "type": "null" }] },
+    "population": { "$ref": "#/$defs/population" },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "value": { "type": ["number", "null"] },
+    "lower_bound": { "type": ["number", "null"] },
+    "upper_bound": { "type": ["number", "null"] },
+    "raw_protocol_latency": { "type": "integer", "minimum": 0, "maximum": 65535 },
+    "validity": { "enum": ["valid", "bounded", "unavailable", "invalid"] },
+    "reason": { "anyOf": [{ "$ref": "#/$defs/reason" }, { "type": "null" }] },
+    "artifact_refs": { "$ref": "#/$defs/artifact_refs" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "validity": { "const": "valid" } } },
+      "then": {
+        "required": ["value"],
+        "properties": {
+          "value": { "type": "number" },
+          "lower_bound": { "type": "null" },
+          "upper_bound": { "type": "null" },
+          "reason": { "type": "null" },
+          "clock_domain": { "$ref": "#/$defs/id" },
+          "source_clock": {
+            "allOf": [
+              { "$ref": "#/$defs/clock" },
+              {
+                "properties": {
+                  "validity": { "const": "valid" },
+                  "native_resolution_ns": { "type": "number" }
+                }
+              }
+            ]
+          },
+          "interval": { "$ref": "#/$defs/interval" },
+          "resolution": { "type": "number" },
+          "population": {
+            "properties": {
+              "expected": { "type": "integer", "minimum": 1 },
+              "observed": { "type": "integer", "minimum": 1 },
+              "represented": { "type": "integer" },
+              "missing": { "const": 0 },
+              "excluded": { "type": "integer" },
+              "overflow": { "type": "integer" },
+              "failed_delivery": { "type": "integer" }
+            }
+          },
+          "coverage": { "properties": { "state": { "const": "complete" } } }
+        }
+      },
+      "else": {
+        "properties": { "value": { "type": "null" }, "reason": { "$ref": "#/$defs/reason" } }
+      }
+    },
+    {
+      "if": { "properties": { "validity": { "const": "bounded" } } },
+      "then": {
+        "anyOf": [
+          { "required": ["lower_bound"], "properties": { "lower_bound": { "type": "number" } } },
+          { "required": ["upper_bound"], "properties": { "upper_bound": { "type": "number" } } }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "uncertainty": { "type": "null" } } },
+      "then": { "properties": { "uncertainty_reason": { "$ref": "#/$defs/reason" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "capture",
+              "encode",
+              "packetize",
+              "send",
+              "full_pipeline",
+              "host_drops",
+              "host_received",
+              "console_delivered",
+              "input_delivery"
+            ]
+          }
+        }
+      },
+      "then": { "properties": { "source": { "const": "host_pipeline" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "client_sent",
+              "transport_ack",
+              "client_receipt",
+              "client_loss",
+              "audio_loss",
+              "audio_non_silence"
+            ]
+          }
+        }
+      },
+      "then": { "properties": { "source": { "const": "client_receipt" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "enum": ["fidelity_ssim", "fidelity_psnr", "hdmi_relative_delay"] }
+        }
+      },
+      "then": { "properties": { "source": { "const": "reference_recording" } } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "operator_observation" } } },
+      "then": { "properties": { "source": { "const": "operator_observation" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "capture",
+              "encode",
+              "packetize",
+              "send",
+              "full_pipeline",
+              "protocol_latency",
+              "frame_interval",
+              "fidelity_ssim",
+              "fidelity_psnr"
+            ]
+          }
+        }
+      },
+      "then": { "required": ["frame_id"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "client_sent",
+              "transport_ack",
+              "host_received",
+              "console_delivered",
+              "input_delivery"
+            ]
+          }
+        }
+      },
+      "then": { "required": ["event_id", "controller_id"], "not": { "required": ["frame_id"] } }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": { "enum": ["input_delivery", "console_delivered"] },
+          "validity": { "const": "valid" }
+        }
+      },
+      "then": {
+        "required": ["delivery_boundary", "authenticated"],
+        "properties": { "authenticated": { "const": true } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": ["capture", "encode", "packetize", "send", "full_pipeline", "input_delivery"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "units": { "const": "microseconds" },
+          "value": { "minimum": 0 },
+          "lower_bound": { "minimum": 0 },
+          "upper_bound": { "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "protocol_latency" } } },
+      "then": {
+        "required": ["raw_protocol_latency"],
+        "properties": {
+          "source": { "const": "protocol_header" },
+          "units": { "const": "0.1_milliseconds" }
+        },
+        "$comment": "Pinned protocol-notes.md section 6: u16 zero is absent/repeated, 65535 is saturated; the header precedes packet insertion/FEC/send. It cannot supply full_pipeline latency.",
+        "allOf": [
+          {
+            "if": { "properties": { "raw_protocol_latency": { "const": 0 } } },
+            "then": { "properties": { "validity": { "const": "unavailable" } } }
+          },
+          {
+            "if": { "properties": { "raw_protocol_latency": { "const": 65535 } } },
+            "then": {
+              "properties": {
+                "validity": { "const": "bounded" },
+                "lower_bound": { "const": 65535 }
+              },
+              "required": ["lower_bound"]
+            }
+          },
+          {
+            "if": { "properties": { "validity": { "const": "valid" } } },
+            "then": {
+              "properties": {
+                "value": { "type": "integer", "minimum": 1, "maximum": 65534 },
+                "raw_protocol_latency": { "minimum": 1, "maximum": 65534 }
+              }
+            }
+          }
+        ]
+      },
+      "else": { "not": { "required": ["raw_protocol_latency"] } }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S" },
+    "counter": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+    "provenance": {
+      "enum": ["synthetic_fixture", "console_hardware", "reference_host", "operator_observation"]
+    },
+    "local_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[\\\\:\\u0000-\\u001f])[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$",
+      "description": "Relative path rooted in the run's local artifact directory. No URLs, absolute paths, traversal or shell expansion; runtime must also resolve symlinks safely."
+    },
+    "artifact_refs": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/local_path" }
+    },
+    "interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": { "start": { "$ref": "#/$defs/counter" }, "end": { "$ref": "#/$defs/counter" } }
+    },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "epoch",
+        "native_resolution_ns",
+        "uncertainty_ns",
+        "uncertainty_reason",
+        "conversion",
+        "quantization_bound_ns",
+        "validity",
+        "reason"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "const": "monotonic" },
+        "epoch": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "native_resolution_ns": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "uncertainty_ns": { "type": ["number", "null"], "minimum": 0 },
+        "uncertainty_reason": { "anyOf": [{ "$ref": "#/$defs/reason" }, { "type": "null" }] },
+        "conversion": { "anyOf": [{ "$ref": "#/$defs/reason" }, { "type": "null" }] },
+        "quantization_bound_ns": { "type": ["number", "null"], "minimum": 0 },
+        "validity": { "enum": ["valid", "invalid", "unavailable"] },
+        "reason": { "anyOf": [{ "$ref": "#/$defs/reason" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "validity": { "const": "valid" } } },
+          "then": {
+            "properties": {
+              "epoch": { "$ref": "#/$defs/id" },
+              "native_resolution_ns": { "type": "number" },
+              "conversion": { "$ref": "#/$defs/reason" },
+              "quantization_bound_ns": { "type": "number" },
+              "reason": { "type": "null" }
+            }
+          },
+          "else": { "properties": { "reason": { "$ref": "#/$defs/reason" } } }
+        },
+        {
+          "if": { "properties": { "uncertainty_ns": { "type": "null" } } },
+          "then": { "properties": { "uncertainty_reason": { "$ref": "#/$defs/reason" } } }
+        }
+      ]
+    },
+    "population": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "observed",
+        "represented",
+        "excluded",
+        "missing",
+        "overflow",
+        "failed_delivery"
+      ],
+      "properties": {
+        "expected": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+        "observed": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+        "represented": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+        "excluded": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+        "missing": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+        "overflow": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+        "failed_delivery": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "enabled_intervals", "gaps", "reason"],
+      "properties": {
+        "state": { "enum": ["complete", "partial", "disabled", "unavailable", "invalid"] },
+        "enabled_intervals": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "$ref": "#/$defs/interval" }
+        },
+        "gaps": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start", "end", "reason"],
+            "properties": {
+              "start": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+              "end": { "anyOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+              "reason": { "$ref": "#/$defs/reason" }
+            }
+          }
+        },
+        "reason": { "anyOf": [{ "$ref": "#/$defs/reason" }, { "type": "null" }] }
+      },
+      "if": { "properties": { "state": { "const": "complete" } } },
+      "then": {
+        "properties": {
+          "enabled_intervals": { "minItems": 1 },
+          "gaps": { "maxItems": 0 },
+          "reason": { "type": "null" }
+        }
+      },
+      "else": { "properties": { "reason": { "$ref": "#/$defs/reason" } } }
+    }
+  }
+}
