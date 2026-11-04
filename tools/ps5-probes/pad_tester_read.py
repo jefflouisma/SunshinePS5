@@ -1,6 +1,7 @@
-"""Read the pad tester stream (TCP 9041) for N seconds; print decoded ScePadData changes.
+"""Read the pad tester stream (TCP 9041); print decoded ScePadData changes.
 
-usage: python3 pad_tester_read.py [seconds] [output-file]  (PAD_TESTER_HOST overrides the console)
+usage: python3 pad_tester_read.py [seconds] [output-file]
+PAD_TESTER_HOST overrides the console address.
 """
 
 import os
