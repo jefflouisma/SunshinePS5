@@ -97,6 +97,7 @@ enum {
     KEYFRAME_RESTART_INTERVAL_US = 1000000,
     KEYFRAME_WAIT_RECORDS = 30,
     SOURCE_RETRY_US = 250000,
+    WORKER_EXIT_US = 3000000,
     SOURCE_RECOVERY_US = 15000000,
     SEND_RETRY_US = 20000,
     SEND_DROP_LOG_INTERVAL_US = 1000000,
@@ -141,6 +142,22 @@ typedef struct {
 typedef struct {
     sp5_system_ops base;
 } console_system;
+
+typedef enum {
+    STAGE_IDLE,
+    STAGE_VIDEO_READ,
+    STAGE_VIDEO_RESTART,
+    STAGE_VIDEO_SEND,
+    STAGE_AUDIO_READ,
+    STAGE_AUDIO_SEND
+} media_stage;
+
+static const char *stage_name(int stage)
+{
+    static const char *const names[] = {"idle",       "video_read", "video_restart",
+                                        "video_send", "audio_read", "audio_send"};
+    return stage >= 0 && stage < (int)(sizeof(names) / sizeof(names[0])) ? names[stage] : "unknown";
+}
 
 typedef struct {
     stream_options options;
@@ -213,6 +230,12 @@ typedef struct {
      * reports lost reference frames (0x0301); served by the video owner. */
     atomic_bool keyframe_requested;
     uint64_t keyframe_restart_us;
+    /* Console call each media owner is inside (media_stage), for diagnosing a
+     * worker that does not exit at teardown. */
+    atomic_int video_stage, audio_stage;
+    /* A media owner never returned from a console call: its session resources
+     * stay allocated, new sessions are refused, and takeover still works. */
+    bool media_wedged;
     /* Video source lost (Avcap2 reads fail while the console changes video
      * mode, e.g. when a game starts or closes); the video owner reopens it. */
     bool source_recovering;
@@ -749,7 +772,10 @@ static int recover_source(stream_host *h, uint64_t now, sp5_reason reason)
         return 2;
     h->source_retry_us = now + SOURCE_RETRY_US;
     ++h->source_attempts;
-    if (sp5_ps5_capture_restart(&h->capture).status == SP5_OK) {
+    atomic_store(&h->video_stage, STAGE_VIDEO_RESTART);
+    sp5_result restarted = sp5_ps5_capture_restart(&h->capture);
+    atomic_store(&h->video_stage, STAGE_IDLE);
+    if (restarted.status == SP5_OK) {
         h->keyframe_restart_us = now;
         h->keyframe_wait = 1;
     }
@@ -776,7 +802,9 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
         begin_us - h->keyframe_restart_us >= KEYFRAME_RESTART_INTERVAL_US) {
         atomic_store_explicit(&h->keyframe_requested, false, memory_order_release);
         h->keyframe_restart_us = begin_us;
+        atomic_store(&h->video_stage, STAGE_VIDEO_RESTART);
         sp5_result restarted = sp5_ps5_capture_restart(&h->capture);
+        atomic_store(&h->video_stage, STAGE_IDLE);
         (void)emit("{\"event\":\"keyframe_restart\",\"synthetic\":false,\"diagnostic\":true,"
                    "\"ok\":%s,\"reason\":%d,\"restart_us\":%llu}\n",
                    restarted.status == SP5_OK ? "true" : "false", (int)restarted.reason,
@@ -786,8 +814,10 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
         h->keyframe_wait = 1;
     }
     sp5_video_frame frame;
+    atomic_store(&h->video_stage, STAGE_VIDEO_READ);
     sp5_result acquired =
         sp5_ps5_capture_operations(&h->capture).acquire(&h->capture, deadline, false, &frame);
+    atomic_store(&h->video_stage, STAGE_IDLE);
     if (acquired.status != SP5_OK) {
         if (acquired.reason == SP5_REASON_WOULD_BLOCK || acquired.reason == SP5_REASON_TIMEOUT ||
             acquired.reason == SP5_REASON_COVERAGE_GAP)
@@ -919,8 +949,10 @@ static int send_audio(stream_host *h, const struct sockaddr_in *destination)
         return 0;
     deadline.ticks += AUDIO_DEADLINE_US;
     sp5_audio_block block;
+    atomic_store(&h->audio_stage, STAGE_AUDIO_READ);
     sp5_result acquired =
         sp5_ps5_audio_ops(&h->audio_adapter).acquire(&h->audio_adapter, deadline, &block);
+    atomic_store(&h->audio_stage, STAGE_IDLE);
     if (acquired.status != SP5_OK) {
         return acquired.reason == SP5_REASON_WOULD_BLOCK || acquired.reason == SP5_REASON_TIMEOUT
                    ? 2
@@ -1574,6 +1606,12 @@ static int service_request(stream_host *h, connection *c)
         response.code = 409;
         return http_reply(c, &response);
     }
+    if (launch && h->media_wedged) {
+        response.code = 503;
+        response.status_message = "The PS5 host is stuck after a console error. Send the payload "
+                                  "to the PS5 again, then reconnect.";
+        return http_reply(c, &response);
+    }
     if (launch) {
         char session[128];
         if (query_value(request.target, "x-sp5-session", session, sizeof(session))) {
@@ -1685,15 +1723,67 @@ static int accept_connection(stream_host *h, int listener, bool secure, bool rts
     return 0;
 }
 
+/* Waits up to WORKER_EXIT_US for a worker's done flag. For the video owner it
+ * then interrupts the Avcap2 stream and waits once more. */
+static bool worker_exited(stream_host *h, atomic_bool *done, atomic_int *stage, const char *name,
+                          bool interruptible)
+{
+    for (int round = 0; round < (interruptible ? 2 : 1); ++round) {
+        uint64_t deadline = now_us() + WORKER_EXIT_US;
+        while (!atomic_load_explicit(done, memory_order_acquire) && now_us() < deadline)
+            pause_step();
+        if (atomic_load_explicit(done, memory_order_acquire))
+            return true;
+        bool interrupted = round == 0 && interruptible && sp5_ps5_capture_interrupt(&h->capture);
+        (void)emit("{\"event\":\"worker_stuck\",\"synthetic\":false,\"diagnostic\":true,"
+                   "\"worker\":\"%s\",\"stage\":\"%s\",\"round\":%d,\"interrupted\":%s}\n",
+                   name, stage_name(stage == NULL ? STAGE_IDLE : atomic_load(stage)), round,
+                   interrupted ? "true" : "false");
+    }
+    return false;
+}
+
 static int clean_session(stream_host *h)
 {
+    if (h->media_wedged)
+        return 1;
     if (h->running) {
         REQUIRE(atomic_load_explicit(&h->stopped, memory_order_acquire));
         REQUIRE(pthread_join(h->input_thread, NULL) == 0);
+        /* A media owner blocked in a console call must not hang the host:
+         * wait with a deadline, then interrupt the capture stream. */
+        bool video = worker_exited(h, &h->media_done, &h->video_stage, "video", true);
+        bool audio = worker_exited(h, &h->audio_done, &h->audio_stage, "audio", false);
+        bool metrics = worker_exited(h, &h->metrics_done, NULL, "metrics", false);
+        h->running = false;
+        if (!video || !audio || !metrics) {
+            /* Joinable threads that may still return touch session state:
+             * detach them and keep that state allocated for good. */
+            if (!video)
+                (void)pthread_detach(h->media_thread);
+            else
+                REQUIRE(pthread_join(h->media_thread, NULL) == 0);
+            if (!audio)
+                (void)pthread_detach(h->audio_thread);
+            else
+                REQUIRE(pthread_join(h->audio_thread, NULL) == 0);
+            if (!metrics)
+                (void)pthread_detach(h->metrics_thread);
+            else
+                REQUIRE(pthread_join(h->metrics_thread, NULL) == 0);
+            /* Session state stays allocated and is never closed or freed: a
+             * stuck owner may still return and use it. clean_session is a
+             * no-op from now on; a takeover replaces this process. */
+            h->media_wedged = true;
+            (void)emit("{\"event\":\"media_wedged\",\"synthetic\":false,\"diagnostic\":true,"
+                       "\"video\":%s,\"audio\":%s,\"metrics\":%s}\n",
+                       video ? "true" : "false", audio ? "true" : "false",
+                       metrics ? "true" : "false");
+            return 1;
+        }
         REQUIRE(pthread_join(h->media_thread, NULL) == 0);
         REQUIRE(pthread_join(h->audio_thread, NULL) == 0);
         REQUIRE(pthread_join(h->metrics_thread, NULL) == 0);
-        h->running = false;
     }
     if (h->lifecycle == NULL)
         return 0;
@@ -2369,6 +2459,8 @@ int main(int argc, char **argv)
         atomic_init(&h->thread_cpu_us[slot], 0);
     atomic_init(&h->protection_assumed, false);
     atomic_init(&h->keyframe_requested, false);
+    atomic_init(&h->video_stage, STAGE_IDLE);
+    atomic_init(&h->audio_stage, STAGE_IDLE);
     sp5_ps5_capture_init(&h->capture);
     sp5_ps5_encoder_init(&h->encoder);
     sp5_ps5_audio_init(&h->audio_adapter);
@@ -2571,6 +2663,8 @@ int main(int argc, char **argv)
     destroy_stream(h);
     bool hold_pad = h->legacy_handoff && h->input_adapter.external_handle < 0 &&
                     h->input_adapter.parked_count > 0;
+    if (h->media_wedged)
+        _exit(status); /* a detached media owner may still reference h */
     free(h);
     if (hold_pad) {
         /* Only a v0.1.0 successor cannot receive the descriptor: keep it and

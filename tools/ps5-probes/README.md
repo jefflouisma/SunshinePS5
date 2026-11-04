@@ -1224,3 +1224,12 @@ when the `/dev/hid` descriptor is passed with `SCM_RIGHTS` over an AF_UNIX socke
 `/system_tmp`. Build each with the pinned SDK's `prospero-clang ... -lkernel` (plus
 `-lSceUserService -lScePad` for the interactive or creator variants) and keep outputs in scratch
 space. Results are in [the v0.1.1 validation record](../../docs/evidence/v0.1.1-validation.md).
+
+## Thread state of a hung payload (`proc_threads.c`)
+
+Read-only. Lists console processes with their run state and kernel wait message
+(`sysctl kern.proc`), to see where a payload is blocked. On 13.60 only
+`KERN_PROC_PROC` is accepted (no per-thread listing), and records are 1,096 bytes
+against the SDK header's 1,088, so the probe steps by the kernel's `ki_structsize`
+and reads the FreeBSD prefix. `-DPROC_THREADS_MATCH="payload"` limits the output to
+matching commands; each line includes the live thread count.

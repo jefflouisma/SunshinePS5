@@ -211,6 +211,9 @@ sp5_capture_ops sp5_ps5_capture_operations(sp5_ps5_capture *capture);
  * a console video-mode change fails its reads. Call between leases; a failed
  * open may be retried, and capture_close still releases the rest. */
 sp5_result sp5_ps5_capture_restart(sp5_ps5_capture *capture);
+/* Teardown escape hatch: issues Avcap2 Stop on the open stream from a thread
+ * other than the video owner, so a Read that never returns can end. */
+bool sp5_ps5_capture_interrupt(sp5_ps5_capture *capture);
 void sp5_ps5_capture_provenance(const sp5_ps5_capture *capture,
                                 sp5_platform_provenance *provenance);
 

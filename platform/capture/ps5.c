@@ -656,6 +656,17 @@ sp5_result sp5_ps5_capture_restart(sp5_ps5_capture *capture)
     return video_open(capture);
 }
 
+bool sp5_ps5_capture_interrupt(sp5_ps5_capture *capture)
+{
+    /* Called from another thread while the video owner may be inside Read.
+     * Only the handle is used; state flags stay with the owner, whose later
+     * close repeats Stop and records any failure. */
+    void *handle = capture == NULL ? NULL : capture->handle;
+    if (handle == NULL || capture->api.stop == NULL)
+        return false;
+    return capture->api.stop(handle) == 0;
+}
+
 void sp5_ps5_capture_init(sp5_ps5_capture *capture)
 {
     if (capture == NULL)
