@@ -3,8 +3,8 @@
  * This host is NOT an acceptance artifact. It composes the real provisional
  * T071-T075 adapters (capture, encode, audio, input, system) with the portable
  * core HTTP/pairing/session/RTSP/control/video/audio/metrics/web services and
- * the private-link console web adapter. It streams one bounded SDR 1080p60
- * H.264 session and emits ready/streaming/stopped JSON on stdout.
+ * the private-link console web adapter. It streams one bounded SDR (1080p or
+ * 720p, 60 or 30 fps) H.264 session and emits ready/streaming/stopped JSON on stdout.
  *
  * CAPTURE PROTECTION IS ASSUMED, NOT OBSERVED. Avcap2 exposes no readable
  * protection state (platform/capture/ps5.h), so after lifecycle start this host
@@ -193,6 +193,8 @@ typedef struct {
     bool address_fixed, address_lost_reported;
     uint64_t address_check_us, accept_error_us;
     char web_authority[64];
+    char mode_text[48];           /* negotiated mode of the current session */
+    uint32_t rtp_ticks_per_frame; /* 90 kHz RTP clock / negotiated fps */
     char pin_url[128];
     char client_session_id[128];
     char host_observations[65536];
@@ -850,7 +852,8 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
     }
     sp5_video_frame_input input = {.bitstream = {h->video_buffer.data, h->video_buffer.size},
                                    .frame_index = (uint32_t)frame.frame_id,
-                                   .rtp_timestamp = (uint32_t)(frame.frame_id * 1500),
+                                   .rtp_timestamp =
+                                       (uint32_t)(frame.frame_id * h->rtp_ticks_per_frame),
                                    .key_frame = encoded.key_frame,
                                    .processing_us = {true, elapsed}};
     sp5_result begun = sp5_video_begin(h->video, &input);
@@ -1175,6 +1178,8 @@ static int start_session(stream_host *h)
     sp5_result negotiated = sp5_rtsp_negotiated(h->rtsp, &h->negotiated);
     if (negotiated.status != SP5_OK)
         return session_fail(h, "rtsp_negotiated", negotiated);
+    if (h->negotiated.mode_index >= h->host.supported_mode_count)
+        return session_fail(h, "mode", sp5_failure(SP5_REASON_UNSUPPORTED));
     if (h->negotiated.audio_duration_ms != 5 && h->negotiated.audio_duration_ms != 10)
         return session_fail(h, "audio_duration", sp5_failure(SP5_REASON_UNSUPPORTED));
     sp5_lifecycle_ops ops = {sp5_ps5_capture_operations(&h->capture),
@@ -1185,7 +1190,7 @@ static int start_session(stream_host *h)
     h->lifecycle_started_us = now_us();
     if (h->lifecycle == NULL)
         return session_fail(h, "lifecycle_create", sp5_failure(SP5_REASON_CAPACITY));
-    sp5_lifecycle_policy policy = {.mode_count = 1,
+    sp5_lifecycle_policy policy = {.mode_count = h->host.supported_mode_count,
                                    .media_bytes = (size_t)64 * 1024 * 1024,
                                    .core_bytes = (size_t)32 * 1024 * 1024,
                                    .streaming_cpu_us_per_10s = 10000000,
@@ -1196,7 +1201,8 @@ static int start_session(stream_host *h)
                                    .clock = {NULL, clock_describe, clock_now},
                                    .metrics_capacity = {1024, 4096, 256},
                                    .metrics_enabled = false};
-    policy.modes[0] = h->host.supported_modes[0];
+    memcpy(policy.modes, h->host.supported_modes,
+           h->host.supported_mode_count * sizeof(policy.modes[0]));
     policy.metrics_context.synthetic = false;
     (void)snprintf(policy.metrics_context.host_version, sizeof(policy.metrics_context.host_version),
                    SP5_HOST_VERSION);
@@ -1212,11 +1218,16 @@ static int start_session(stream_host *h)
     if (bound.status != SP5_OK)
         return session_fail(h, "lifecycle_bind", bound);
     uint32_t bitrate = view.chosen_bitrate_kbps;
-    if (bitrate < 1000)
-        bitrate = 1000;
-    if (bitrate > 50000)
-        bitrate = 50000;
-    sp5_media_config config = {1920, 1080, 60, 1, "h264", SP5_SDR, bitrate};
+    const sp5_host_mode *mode = &h->host.supported_modes[h->negotiated.mode_index];
+    if (bitrate < mode->minimum_bitrate_kbps)
+        bitrate = mode->minimum_bitrate_kbps;
+    if (bitrate > mode->maximum_bitrate_kbps)
+        bitrate = mode->maximum_bitrate_kbps;
+    h->rtp_ticks_per_frame = 90000 / mode->fps;
+    (void)snprintf(h->mode_text, sizeof(h->mode_text), "%ux%u@%u %s SDR", (unsigned)mode->width,
+                   (unsigned)mode->height, (unsigned)mode->fps, mode->codec);
+    sp5_media_config config = {mode->width, mode->height,        mode->fps, 1,
+                               mode->codec, mode->dynamic_range, bitrate};
     sp5_result opened = sp5_lifecycle_start(h->lifecycle, &config, now_us());
     if (opened.status != SP5_OK)
         return session_fail(h, "lifecycle_start", opened);
@@ -1288,10 +1299,10 @@ static int start_session(stream_host *h)
     if (h->transport == NULL)
         return session_fail(h, "control_transport", sp5_failure(SP5_REASON_PLATFORM));
     if (emit("{\"event\":\"reserved\",\"synthetic\":false,\"diagnostic\":true,\"session_id\":%llu,"
-             "\"requested_kbps\":%u,\"chosen_kbps\":%u,\"mode\":\"1920x1080@60 h264 SDR\","
+             "\"requested_kbps\":%u,\"chosen_kbps\":%u,\"mode\":\"%s\","
              "\"protection\":\"diagnostic:--assume-protection-clear\"}\n",
-             (unsigned long long)view.id, view.requested_bitrate_kbps,
-             view.chosen_bitrate_kbps) < 0)
+             (unsigned long long)view.id, view.requested_bitrate_kbps, view.chosen_bitrate_kbps,
+             h->mode_text) < 0)
         return session_fail(h, "reserved_emit", sp5_failure(SP5_REASON_PLATFORM));
     return 0;
 }
@@ -1335,9 +1346,9 @@ static int play(stream_host *h)
     }
     h->running = true;
     if (emit("{\"event\":\"streaming\",\"synthetic\":false,\"diagnostic\":true,"
-             "\"session_id\":%llu,\"mode\":\"1920x1080@60 h264 SDR\",\"bitrate_kbps\":%u,"
+             "\"session_id\":%llu,\"mode\":\"%s\",\"bitrate_kbps\":%u,"
              "\"protection\":\"diagnostic:--assume-protection-clear\"}\n",
-             (unsigned long long)sp5_session_read(h->session).id,
+             (unsigned long long)sp5_session_read(h->session).id, h->mode_text,
              sp5_session_read(h->session).chosen_bitrate_kbps) < 0)
         return 1;
     return 0;
@@ -2110,8 +2121,16 @@ static int start_stream(stream_host *h)
         (void)fputs("could not initialize the host\n", stderr);
         return 1;
     }
-    h->host.supported_mode_count = 1;
-    h->host.supported_modes[0] = (sp5_host_mode){1920, 1080, 60, "h264", SP5_SDR, 1000, 50000};
+    /* SDR H.264 only. Bitrate ceilings are the AVC level bounds recovered for
+     * each Avcap2 mode (sp5_ps5_mode_validate). */
+    static const sp5_host_mode modes[] = {
+        {1920, 1080, 60, "h264", SP5_SDR, 1000, 50000},
+        {1920, 1080, 30, "h264", SP5_SDR, 1000, 20000},
+        {1280, 720, 60, "h264", SP5_SDR, 1000, 20000},
+        {1280, 720, 30, "h264", SP5_SDR, 1000, 14000},
+    };
+    h->host.supported_mode_count = sizeof(modes) / sizeof(modes[0]);
+    memcpy(h->host.supported_modes, modes, sizeof(modes));
     h->host.controller_touch_events = false;
     h->host.encryption_supported = 5;
     if (sp5_host_transition(&h->host, SP5_HOST_RUNNING).status != SP5_OK) {
@@ -2368,7 +2387,7 @@ int main(int argc, char **argv)
         emit("{\"event\":\"ready\",\"synthetic\":false,\"diagnostic\":true,\"host\":\"%s\","
              "\"address\":\"%s\",\"web\":\"http://%s\",\"http_port\":%u,\"rtsp_port\":%u,"
              "\"https_port\":%u,\"video_port\":%u,\"audio_port\":%u,\"control_port\":%u,"
-             "\"mode\":\"1920x1080@60 h264 SDR 1000-50000 kbps\","
+             "\"modes\":\"h264 SDR 1920x1080@60/30 1280x720@60/30\","
              "\"protection\":\"%s\",\"firmware\":\"13.60\",\"run_seconds\":%llu}\n",
              escaped, h->options.bind_address, h->web_authority, (unsigned)h->options.http_port,
              (unsigned)RTSP_PORT, (unsigned)SECURE_HTTP_PORT, (unsigned)VIDEO_PORT,
