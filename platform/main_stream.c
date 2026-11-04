@@ -95,6 +95,7 @@ enum {
     LEGACY_TAKEOVER_PORT = 47990,
     PLAY_DEADLINE_US = 30000000,
     KEYFRAME_RESTART_INTERVAL_US = 1000000,
+    WATCHDOG_STALL_US = 3000000,
     KEYFRAME_WAIT_RECORDS = 30,
     SOURCE_RETRY_US = 250000,
     WORKER_EXIT_US = 3000000,
@@ -143,19 +144,55 @@ typedef struct {
     sp5_system_ops base;
 } console_system;
 
+/* The console call each thread is inside, for diagnosing a thread that
+ * stops making progress (worker_stuck at teardown, stall from the watchdog). */
 typedef enum {
     STAGE_IDLE,
     STAGE_VIDEO_READ,
     STAGE_VIDEO_RESTART,
     STAGE_VIDEO_SEND,
     STAGE_AUDIO_READ,
-    STAGE_AUDIO_SEND
-} media_stage;
+    STAGE_AUDIO_SEND,
+    STAGE_INPUT_TRANSPORT,
+    STAGE_INPUT_REPORT,
+    STAGE_INPUT_END,
+    STAGE_MAIN_POLL,
+    STAGE_MAIN_HTTP,
+    STAGE_MAIN_SESSION_START,
+    STAGE_MAIN_PLAY,
+    STAGE_MAIN_JOIN_INPUT,
+    STAGE_MAIN_JOIN_MEDIA,
+    STAGE_MAIN_STOP_INPUT,
+    STAGE_MAIN_LIFECYCLE_END,
+    STAGE_MAIN_HEARTBEAT,
+    STAGE_MAIN_WEB,
+    STAGE_MAIN_TAKEOVER,
+    STAGE_MAIN_ADDRESS
+} thread_stage;
 
 static const char *stage_name(int stage)
 {
-    static const char *const names[] = {"idle",       "video_read", "video_restart",
-                                        "video_send", "audio_read", "audio_send"};
+    static const char *const names[] = {"idle",
+                                        "video_read",
+                                        "video_restart",
+                                        "video_send",
+                                        "audio_read",
+                                        "audio_send",
+                                        "input_transport",
+                                        "input_report",
+                                        "input_end",
+                                        "main_poll",
+                                        "main_http",
+                                        "main_session_start",
+                                        "main_play",
+                                        "main_join_input",
+                                        "main_join_media",
+                                        "main_stop_input",
+                                        "main_lifecycle_end",
+                                        "main_heartbeat",
+                                        "main_web",
+                                        "main_takeover",
+                                        "main_address"};
     return stage >= 0 && stage < (int)(sizeof(names) / sizeof(names[0])) ? names[stage] : "unknown";
 }
 
@@ -232,7 +269,10 @@ typedef struct {
     uint64_t keyframe_restart_us;
     /* Console call each media owner is inside (media_stage), for diagnosing a
      * worker that does not exit at teardown. */
-    atomic_int video_stage, audio_stage;
+    atomic_int video_stage, audio_stage, input_stage, main_stage;
+    atomic_bool input_done;
+    _Atomic uint64_t main_beat_us; /* last main-loop iteration, for the watchdog */
+    pthread_t watchdog_thread;
     /* A media owner never returned from a console call: its session resources
      * stay allocated, new sessions are refused, and takeover still works. */
     bool media_wedged;
@@ -1071,6 +1111,7 @@ static void *audio_owner(void *context)
 static sp5_result input_end(void *context, sp5_end_reason reason)
 {
     stream_host *h = context;
+    atomic_store(&h->input_stage, STAGE_INPUT_END);
     sp5_result result = sp5_lifecycle_stop_input(h->lifecycle, reason);
     atomic_store_explicit(&h->stopped, true, memory_order_release);
     return result;
@@ -1084,10 +1125,13 @@ static void *input_owner(void *context)
         publish_thread_cpu(h, CPU_INPUT);
         int requested = atomic_load_explicit(&h->end_request, memory_order_acquire);
         if (requested >= 0) {
+            atomic_store(&h->input_stage, STAGE_INPUT_END);
             h->worker_error = sp5_control_end(h->control, (sp5_end_reason)requested).reason;
             break;
         }
+        atomic_store(&h->input_stage, STAGE_INPUT_TRANSPORT);
         sp5_result step = sp5_control_transport_step(h->transport, now_us());
+        atomic_store(&h->input_stage, STAGE_IDLE);
         if (step.status != SP5_OK && !atomic_load_explicit(&h->stopped, memory_order_acquire)) {
             h->worker_error = step.reason;
             (void)media_fail("control_step", (int)step.reason);
@@ -1109,8 +1153,10 @@ static void *input_owner(void *context)
                 sp5_timestamp received = {event.received_us, 1, 1, SP5_VALIDITY_VALID,
                                           SP5_REASON_NONE};
                 sp5_input_evidence evidence;
+                atomic_store(&h->input_stage, STAGE_INPUT_REPORT);
                 sp5_result result =
                     sp5_lifecycle_input(h->lifecycle, &event, received, ++event_id, &evidence);
+                atomic_store(&h->input_stage, STAGE_IDLE);
                 if (result.status != SP5_OK) {
                     /* One undeliverable report must not end the stream; only a
                      * lost session/controller ownership does. */
@@ -1168,7 +1214,9 @@ static void *input_owner(void *context)
         pause_step();
     }
     publish_thread_cpu(h, CPU_INPUT);
+    atomic_store(&h->input_stage, STAGE_IDLE);
     atomic_store_explicit(&h->stopped, true, memory_order_release);
+    atomic_store_explicit(&h->input_done, true, memory_order_release);
     return NULL;
 }
 
@@ -1347,6 +1395,7 @@ static int play(stream_host *h)
     atomic_store(&h->audio_done, false);
     atomic_store(&h->end_request, -1);
     atomic_store(&h->keyframe_requested, false); /* the new stream starts with an IDR */
+    atomic_store(&h->input_done, false);
     h->keyframe_wait = 0;
     h->source_recovering = false;
     h->video_timing_frames = h->video_key_frames = 0;
@@ -1558,6 +1607,7 @@ static int service_request(stream_host *h, connection *c)
         }
         sp5_session_view view = sp5_session_read(h->session);
         if (view.mode_configured && view.state == SP5_SESSION_NEGOTIATING && h->lifecycle == NULL) {
+            atomic_store(&h->main_stage, STAGE_MAIN_SESSION_START);
             if (start_session(h) != 0) {
                 sp5_rtsp_destroy(h->rtsp);
                 h->rtsp = NULL;
@@ -1568,6 +1618,7 @@ static int service_request(stream_host *h, connection *c)
         REQUIRE(write_connection(c, (sp5_bytes){output.data, output.size}));
         close_connection(c);
         if (h->lifecycle != NULL && view.state == SP5_SESSION_ACTIVE && sp5_rtsp_playing(h->rtsp)) {
+            atomic_store(&h->main_stage, STAGE_MAIN_PLAY);
             if (play(h) != 0) {
                 atomic_store_explicit(&h->end_request, SP5_END_ERROR, memory_order_release);
                 atomic_store_explicit(&h->stopped, true, memory_order_release);
@@ -1749,14 +1800,22 @@ static int clean_session(stream_host *h)
         return 1;
     if (h->running) {
         REQUIRE(atomic_load_explicit(&h->stopped, memory_order_acquire));
-        REQUIRE(pthread_join(h->input_thread, NULL) == 0);
+        /* The input owner sets stopped before it releases its controllers;
+         * a console call there must not hang the host either. */
+        atomic_store(&h->main_stage, STAGE_MAIN_JOIN_INPUT);
+        bool input = worker_exited(h, &h->input_done, &h->input_stage, "input", false);
+        atomic_store(&h->main_stage, STAGE_MAIN_JOIN_MEDIA);
         /* A media owner blocked in a console call must not hang the host:
          * wait with a deadline, then interrupt the capture stream. */
         bool video = worker_exited(h, &h->media_done, &h->video_stage, "video", true);
         bool audio = worker_exited(h, &h->audio_done, &h->audio_stage, "audio", false);
         bool metrics = worker_exited(h, &h->metrics_done, NULL, "metrics", false);
         h->running = false;
-        if (!video || !audio || !metrics) {
+        if (input)
+            REQUIRE(pthread_join(h->input_thread, NULL) == 0);
+        else
+            (void)pthread_detach(h->input_thread);
+        if (!input || !video || !audio || !metrics) {
             /* Joinable threads that may still return touch session state:
              * detach them and keep that state allocated for good. */
             if (!video)
@@ -1776,8 +1835,8 @@ static int clean_session(stream_host *h)
              * no-op from now on; a takeover replaces this process. */
             h->media_wedged = true;
             (void)emit("{\"event\":\"media_wedged\",\"synthetic\":false,\"diagnostic\":true,"
-                       "\"video\":%s,\"audio\":%s,\"metrics\":%s}\n",
-                       video ? "true" : "false", audio ? "true" : "false",
+                       "\"input\":%s,\"video\":%s,\"audio\":%s,\"metrics\":%s}\n",
+                       input ? "true" : "false", video ? "true" : "false", audio ? "true" : "false",
                        metrics ? "true" : "false");
             return 1;
         }
@@ -1791,8 +1850,11 @@ static int clean_session(stream_host *h)
     sp5_end_reason reason = view.has_end_reason ? view.end_reason : SP5_END_ERROR;
     /* All producers are joined. Invalidate admission/neutralize controllers
      * before ending media, even when the input owner did not take this path. */
+    atomic_store(&h->main_stage, STAGE_MAIN_STOP_INPUT);
     (void)sp5_lifecycle_stop_input(h->lifecycle, reason);
+    atomic_store(&h->main_stage, STAGE_MAIN_LIFECYCLE_END);
     sp5_result ended = sp5_lifecycle_end(h->lifecycle, reason);
+    atomic_store(&h->main_stage, STAGE_IDLE);
     sp5_control_transport_close(h->transport);
     h->transport = NULL;
     sp5_control_destroy(h->control);
@@ -2407,6 +2469,37 @@ static void follow_address(stream_host *h, connection *connections, uint64_t now
     h->address_lost_reported = true;
 }
 
+/* Reports, without touching any other state, when the main loop stops
+ * turning: the stage of every thread names the console call it is inside. */
+static void *watchdog_owner(void *context)
+{
+    stream_host *h = context;
+    bool reported = false;
+    for (;;) {
+        struct timespec delay = {.tv_nsec = 500000000};
+        (void)nanosleep(&delay, NULL);
+        uint64_t beat = atomic_load_explicit(&h->main_beat_us, memory_order_acquire);
+        uint64_t now = now_us();
+        bool stalled = beat != 0 && now > beat && now - beat > WATCHDOG_STALL_US;
+        if (stalled && !reported)
+            (void)emit(
+                "{\"event\":\"stall\",\"synthetic\":false,\"diagnostic\":true,"
+                "\"main_ms\":%llu,\"main\":\"%s\",\"input\":\"%s\",\"video\":\"%s\","
+                "\"audio\":\"%s\",\"input_done\":%s,\"video_done\":%s,"
+                "\"audio_done\":%s}\n",
+                (unsigned long long)((now - beat) / 1000), stage_name(atomic_load(&h->main_stage)),
+                stage_name(atomic_load(&h->input_stage)), stage_name(atomic_load(&h->video_stage)),
+                stage_name(atomic_load(&h->audio_stage)),
+                atomic_load(&h->input_done) ? "true" : "false",
+                atomic_load(&h->media_done) ? "true" : "false",
+                atomic_load(&h->audio_done) ? "true" : "false");
+        if (!stalled && reported)
+            (void)emit("{\"event\":\"stall_cleared\",\"synthetic\":false,\"diagnostic\":true}\n");
+        reported = stalled;
+    }
+    return NULL;
+}
+
 int main(int argc, char **argv)
 {
     stream_host *h = calloc(1, sizeof(*h));
@@ -2461,6 +2554,10 @@ int main(int argc, char **argv)
     atomic_init(&h->keyframe_requested, false);
     atomic_init(&h->video_stage, STAGE_IDLE);
     atomic_init(&h->audio_stage, STAGE_IDLE);
+    atomic_init(&h->input_stage, STAGE_IDLE);
+    atomic_init(&h->main_stage, STAGE_IDLE);
+    atomic_init(&h->input_done, true);
+    atomic_init(&h->main_beat_us, 0);
     sp5_ps5_capture_init(&h->capture);
     sp5_ps5_encoder_init(&h->encoder);
     sp5_ps5_audio_init(&h->audio_adapter);
@@ -2493,6 +2590,8 @@ int main(int argc, char **argv)
     }
     (void)nonblocking(STDIN_FILENO);
     (void)nonblocking(STDERR_FILENO); /* diagnostics must not stall on a gone log peer */
+    if (pthread_create(&h->watchdog_thread, NULL, watchdog_owner, h) == 0)
+        (void)pthread_detach(h->watchdog_thread);
     sp5_optional_u64 clock_wall = wall_us();
     (void)emit("{\"event\":\"clock\",\"synthetic\":false,\"diagnostic\":true,"
                "\"wall_us\":%llu,\"monotonic_us\":%llu}\n",
@@ -2528,9 +2627,12 @@ int main(int argc, char **argv)
                 atomic_store_explicit(&h->end_request, SP5_END_HOST_STOPPING, memory_order_release);
         }
         uint64_t budget_now = now_us();
+        atomic_store_explicit(&h->main_beat_us, budget_now, memory_order_release);
         publish_thread_cpu(h, CPU_MAIN);
         if (!h->running && budget_now >= heartbeat_next) {
+            atomic_store(&h->main_stage, STAGE_MAIN_HEARTBEAT);
             sp5_ps5_input_heartbeat(&h->input_adapter);
+            atomic_store(&h->main_stage, STAGE_IDLE);
             heartbeat_next = budget_now + 1000000;
         }
         if (budget_now >= budget_next) {
@@ -2555,8 +2657,11 @@ int main(int argc, char **argv)
         }
         if (stop && !h->running)
             break;
-        if (!stop && !h->running && h->lifecycle == NULL && !h->web_service.stopping)
+        if (!stop && !h->running && h->lifecycle == NULL && !h->web_service.stopping) {
+            atomic_store(&h->main_stage, STAGE_MAIN_ADDRESS);
             follow_address(h, connections, budget_now);
+            atomic_store(&h->main_stage, STAGE_IDLE);
+        }
         struct pollfd polls[6 + SP5_CONSOLE_WEB_POLLS] = {
             {watch_stdin ? STDIN_FILENO : -1, POLLIN, 0},
             {h->listeners[0], POLLIN, 0},
@@ -2565,7 +2670,9 @@ int main(int argc, char **argv)
             {h->takeover_fd, POLLIN, 0},
             {h->legacy_takeover_fd, POLLIN, 0}};
         sp5_console_web_poll(&h->web_service, polls + 6);
+        atomic_store(&h->main_stage, STAGE_MAIN_POLL);
         int ready = poll(polls, 6 + SP5_CONSOLE_WEB_POLLS, 1);
+        atomic_store(&h->main_stage, STAGE_IDLE);
         if (ready < 0 && errno != EINTR) {
             /* Fatal host errors stop through the normal path: the loop exits
              * only after the stream's worker threads are joined. */
@@ -2577,6 +2684,7 @@ int main(int argc, char **argv)
             pause_step();
             continue;
         }
+        atomic_store(&h->main_stage, STAGE_MAIN_TAKEOVER);
         if (ready > 0 && !stop && (polls[4].revents & POLLIN) != 0)
             takeover_accept(h, false, &stop, &reason);
         if (ready > 0 && !stop && (polls[5].revents & POLLIN) != 0)
@@ -2621,11 +2729,14 @@ int main(int argc, char **argv)
             if (connections[i].fd >= 0) {
                 if (now_us() > connections[i].deadline_us)
                     close_connection(&connections[i]);
-                else if (service_request(h, &connections[i]) != 0)
+                else if ((atomic_store(&h->main_stage, STAGE_MAIN_HTTP),
+                          service_request(h, &connections[i])) != 0)
                     close_connection(&connections[i]); /* never replay a failed request */
             }
         }
+        atomic_store(&h->main_stage, STAGE_MAIN_WEB);
         sp5_console_web_step(&h->web_service, polls + 6, now_us());
+        atomic_store(&h->main_stage, STAGE_IDLE);
         if (h->web_service.failed && !stop) {
             status = 1;
             reason = "web";
@@ -2665,7 +2776,7 @@ int main(int argc, char **argv)
                     h->input_adapter.parked_count > 0;
     if (h->media_wedged)
         _exit(status); /* a detached media owner may still reference h */
-    free(h);
+    /* h is not freed: the detached watchdog reads it until the process exits. */
     if (hold_pad) {
         /* Only a v0.1.0 successor cannot receive the descriptor: keep it and
          * the assigned pad open so that host can reuse the handle. Current
