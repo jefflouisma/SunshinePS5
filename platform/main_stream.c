@@ -279,7 +279,7 @@ typedef struct {
     /* Set by the input owner when Moonlight asks for an IDR (0x0302) or
      * reports lost reference frames (0x0301); served by the video owner. */
     atomic_bool keyframe_requested;
-    bool motion_requested; /* 0x5501 sent for this session's controller */
+    uint16_t motion_requested; /* controllers whose sensors were requested (bit per number) */
     uint64_t input_log_window_us;
     unsigned input_log_count, input_log_skipped;
     uint64_t keyframe_restart_us;
@@ -1140,6 +1140,36 @@ static sp5_result input_end(void *context, sp5_end_reason reason)
     return result;
 }
 
+/* A controller arrival (0x55000004) that reports an accelerometer or gyro
+ * (LI_CCAP_ACCEL 0x10, LI_CCAP_GYRO 0x20) is answered with 0x5501 for that
+ * controller, as Sunshine does: clients stream sensors only when asked.
+ * Payload: u16 controller, u16 rate Hz, u8 type (1 accel, 2 gyro), LE. */
+static void request_motion(stream_host *h, const sp5_control_event *event)
+{
+    const uint8_t *p = event->payload;
+    if (event->payload_size < 16 || p[4] != 0x04 || p[5] != 0x00 || p[6] != 0x00 || p[7] != 0x55 ||
+        p[8] >= 16 || (h->motion_requested >> p[8]) & 1U)
+        return;
+    uint8_t controller = p[8];
+    uint16_t capabilities = (uint16_t)(p[10] | (p[11] << 8));
+    bool sent = false;
+    for (uint8_t type = 1; type <= 2; ++type) {
+        if ((capabilities & (type == 1 ? 0x10U : 0x20U)) == 0)
+            continue;
+        const uint8_t request[5] = {controller, 0, MOTION_RATE_HZ & 0xff, MOTION_RATE_HZ >> 8,
+                                    type};
+        sent = sp5_control_send(h->control, 0x5501, (sp5_bytes){request, sizeof(request)}).status ==
+                   SP5_OK ||
+               sent;
+    }
+    if (!sent)
+        return;
+    h->motion_requested |= (uint16_t)(1U << controller);
+    (void)emit("{\"event\":\"motion_requested\",\"synthetic\":false,\"diagnostic\":true,"
+               "\"controller\":%u,\"capabilities\":%u,\"rate_hz\":%d}\n",
+               controller, capabilities, MOTION_RATE_HZ);
+}
+
 static void *input_owner(void *context)
 {
     stream_host *h = context;
@@ -1155,23 +1185,6 @@ static void *input_owner(void *context)
         atomic_store(&h->input_stage, STAGE_INPUT_TRANSPORT);
         sp5_result step = sp5_control_transport_step(h->transport, now_us());
         atomic_store(&h->input_stage, STAGE_IDLE);
-        if (!h->motion_requested && step.status == SP5_OK) {
-            /* Ask the client for accelerometer and gyro reports of the first
-             * controller; clients without sensors ignore it. Payload: u16
-             * controller, u16 rate Hz, u8 type (1 accel, 2 gyro), LE. */
-            bool sent = true;
-            for (uint8_t type = 1; type <= 2; ++type) {
-                const uint8_t request[5] = {0, 0, MOTION_RATE_HZ & 0xff, MOTION_RATE_HZ >> 8, type};
-                sent = sent &&
-                       sp5_control_send(h->control, 0x5501, (sp5_bytes){request, sizeof(request)})
-                               .status == SP5_OK;
-            }
-            h->motion_requested = sent;
-            if (sent)
-                (void)emit("{\"event\":\"motion_requested\",\"synthetic\":false,"
-                           "\"diagnostic\":true,\"rate_hz\":%d}\n",
-                           MOTION_RATE_HZ);
-        }
         if (step.status != SP5_OK && !atomic_load_explicit(&h->stopped, memory_order_acquire)) {
             h->worker_error = step.reason;
             (void)media_fail("control_step", (int)step.reason);
@@ -1197,12 +1210,21 @@ static void *input_owner(void *context)
                 sp5_result result =
                     sp5_lifecycle_input(h->lifecycle, &event, received, ++event_id, &evidence);
                 atomic_store(&h->input_stage, STAGE_IDLE);
+                if (result.status == SP5_OK)
+                    request_motion(h, &event);
                 if (result.status != SP5_OK) {
                     /* One undeliverable report must not end the stream; only a
                      * lost session/controller ownership does. */
                     (void)emit("{\"event\":\"input_error\",\"synthetic\":false,"
-                               "\"diagnostic\":true,\"event_id\":%llu,\"reason\":%d}\n",
-                               (unsigned long long)event_id, (int)result.reason);
+                               "\"diagnostic\":true,\"event_id\":%llu,\"reason\":%d,"
+                               "\"magic\":\"%02x%02x%02x%02x\",\"kind\":%u,\"size\":%u}\n",
+                               (unsigned long long)event_id, (int)result.reason,
+                               event.payload_size >= 8 ? event.payload[7] : 0,
+                               event.payload_size >= 8 ? event.payload[6] : 0,
+                               event.payload_size >= 8 ? event.payload[5] : 0,
+                               event.payload_size >= 8 ? event.payload[4] : 0,
+                               event.payload_size >= 10 ? event.payload[9] : 0,
+                               (unsigned)event.payload_size);
                     if (result.reason != SP5_REASON_OWNERSHIP)
                         continue;
                     h->worker_error = result.reason;
@@ -1507,7 +1529,7 @@ static int play(stream_host *h)
     atomic_store(&h->end_request, -1);
     atomic_store(&h->keyframe_requested, false); /* the new stream starts with an IDR */
     atomic_store(&h->input_done, false);
-    h->motion_requested = false;
+    h->motion_requested = 0;
     h->keyframe_wait = 0;
     h->source_recovering = false;
     h->video_timing_frames = h->video_key_frames = 0;
