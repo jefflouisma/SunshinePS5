@@ -5,10 +5,10 @@ SunshinePS5 is a PS5 homebrew payload that turns a jailbroken PlayStation 5 into
 GameStream/Sunshine protocol, so the **official, unmodified Moonlight client** can pair with the
 console, stream its screen and audio, and drive it with a controller.
 
-> **Status: v0.1.1 MVP.** One streaming configuration is supported and has been validated on real
+> **Status: v0.1.2 MVP.** One streaming configuration is supported and has been validated on real
 > hardware. Read [Scope and limitations](#scope-and-limitations) before using it.
 
-## What works in v0.1.1
+## What works in v0.1.2
 
 | Area | Supported |
 |---|---|
@@ -23,9 +23,10 @@ console, stream its screen and audio, and drive it with a controller.
 Measured on the development console with the official client over a wired link: 59.98 fps
 received and decoded, 0.00% network frame drops, 0.1 ms host processing latency, about 1 ms
 network latency ([v0.1.0 record](docs/evidence/v0.1.0-validation.md),
-[v0.1.1 record](docs/evidence/v0.1.1-validation.md)). Earlier diagnostic
-builds also ran 30-minute and two-hour sessions with at most 0.013% host-to-client frame loss
-and flat memory use.
+[v0.1.1 record](docs/evidence/v0.1.1-validation.md),
+[v0.1.2 record](docs/evidence/v0.1.2-validation.md), the last on a home router network).
+Earlier diagnostic builds also ran 30-minute and two-hour sessions with at most 0.013%
+host-to-client frame loss and flat memory use.
 
 ## Requirements
 
@@ -38,11 +39,11 @@ and flat memory use.
 
 ## Install and run
 
-1. Download `sunshineps5-0.1.1.tar.gz` from the release page and verify it:
+1. Download `sunshineps5-0.1.2.tar.gz` from the release page and verify it:
 
    ```sh
-   shasum -a 256 -c sunshineps5-0.1.1.tar.gz.sha256
-   tar -xzf sunshineps5-0.1.1.tar.gz && cd sunshineps5-0.1.1
+   shasum -a 256 -c sunshineps5-0.1.2.tar.gz.sha256
+   tar -xzf sunshineps5-0.1.2.tar.gz && cd sunshineps5-0.1.2
    shasum -a 256 -c sunshineps5.elf.sha256
    ```
 
@@ -55,11 +56,14 @@ and flat memory use.
 
    The terminal shows the host's JSON log. Wait for an `"event":"ready"` line; it reports the
    address and the web page URL, e.g. `"web":"http://192.168.1.50:8081"`. Closing the terminal
-   does not stop the host.
+   does not stop the host; it only ends the log.
 
-   The host picks the first private IPv4 address of an active console interface. Its identity
-   and paired clients are stored in `/data/ps5-dev/sunshine-state` on the console and survive
-   restarts of the host.
+   The host picks the first private IPv4 address of an active console interface. If that
+   address later goes away (the console moved to another network or got a new address), the
+   host moves to the console's new address on its own, between streaming sessions, without
+   resending the payload; add the new address in Moonlight. Its identity and paired clients are
+   stored in `/data/ps5-dev/sunshine-state` on the console and survive restarts of the host and
+   address changes, so Moonlight does not need to pair again.
 
 3. **First run only:** the console sees the host's virtual controller as a new pad and may show
    *"Who's using this controller?"*. Once streaming, press **Cross** in Moonlight to pick your
@@ -67,8 +71,9 @@ and flat memory use.
 
 ## Pair and stream with Moonlight
 
-1. In Moonlight, choose **Add Host** (the `+` button) and enter the PS5's IP address if it is not
-   discovered automatically. Select the new **SunshinePS5** tile; Moonlight shows a 4-digit PIN.
+1. In Moonlight, choose **Add Host** (the `+` button) and enter the PS5's IP address. The host
+   does not announce itself on the network, so Moonlight will not find it on its own. Select the
+   new **SunshinePS5** tile; Moonlight shows a 4-digit PIN.
 2. On a phone or computer on the same network, open the host's web page
    (`http://<ps5-address>:8081`), enter the PIN under **Pair a device**, and submit. Moonlight
    completes pairing.
