@@ -69,6 +69,7 @@ int scePadInit(void);
 int scePadOpen(int32_t, int32_t, int32_t, const void *);
 int scePadReadState(int32_t, void *);
 int scePadSetMotionSensorState(int32_t, bool);
+int scePadSetVibration(int32_t, const void *); /* {u8 large, u8 small} */
 
 static uint64_t monotonic_us(void)
 {
@@ -187,7 +188,8 @@ static int control_socket(void)
 }
 
 /* Streams to at most one client; returns true when it asked to stop. */
-static bool serve(int listener, int *client, uint32_t sequence, int rc, const uint8_t *pad)
+static bool serve(int listener, int *client, uint32_t sequence, int rc, const uint8_t *pad,
+                  int handle)
 {
     if (*client < 0) {
         *client = accept(listener, NULL, NULL);
@@ -196,8 +198,20 @@ static bool serve(int listener, int *client, uint32_t sequence, int rc, const ui
     }
     if (*client < 0)
         return false;
-    char command[16] = {0};
+    char command[32] = {0};
     ssize_t count = read(*client, command, sizeof(command) - 1U);
+    unsigned large = 0, small = 0;
+    if (count > 0 && sscanf(command, "vib %u %u", &large, &small) == 2) {
+        /* A game-side vibration request on the foreground pad, for locating
+         * where the driver exposes output to the virtual device's owner. */
+        const uint8_t vibration[2] = {(uint8_t)large, (uint8_t)small};
+        int vib_rc = scePadSetVibration(handle, vibration);
+        char reply[48];
+        int size =
+            snprintf(reply, sizeof(reply), "VIB %u %u rc=0x%x\n", large, small, (unsigned)vib_rc);
+        (void)send(*client, reply, (size_t)size, MSG_NOSIGNAL);
+        return false;
+    }
     if (count == 0 || (count > 0 && strncmp(command, "stop", 4) == 0)) {
         bool stop = count > 0;
         (void)close(*client);
@@ -270,7 +284,7 @@ static int tester_main(void)
         memset(state, 0, sizeof(state));
         int rc = pad >= 0 ? scePadReadState(pad, state) : pad;
         if (listener >= 0)
-            stop = serve(listener, &client, sequence, rc, state);
+            stop = serve(listener, &client, sequence, rc, state, pad);
         unsigned index = sequence % 2U;
         draw(buffers[index].data, state, rc == 0);
         __builtin_ia32_sfence();

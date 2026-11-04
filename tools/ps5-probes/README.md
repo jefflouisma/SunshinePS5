@@ -1301,3 +1301,31 @@ them:
 - Acceleration arrives in g and angular velocity in rad/s. Both are populated only
   after the reading app enables the motion sensor.
 
+## Rumble and trigger effects for a virtual pad (`hid_output_probe.c`; not found yet)
+
+Goal: forward a game's vibration (and DualSense trigger effects) for the host's virtual pad to
+the Moonlight client. From the libScePad disassembly (13.60):
+
+- `scePadSetVibration` (offset `0x5350`) issues ioctl `0x80184822` on the library's `/dev/hid`
+  fd: `{u32 handle; u32 0; void *in; u8 flag}`, where `in` points to `{u8 large, u8 small, 0, 0}`.
+  The last field is a mode byte, not an out pointer.
+- `scePadSetTriggerEffect` (`0x7680`) uses `0x8010485a` and `scePadSetLightBar` (`0x5620`) uses
+  `0x80104821`. Both are 16-byte requests with no out field.
+- Both effects are refused for pads opened with port type 3 or 4.
+- No `'H'` ioctl in the library reads output back, and `scePadVirtualDeviceGetRemoteSetting`
+  (`0x80684830`) returns capability flags only. The `AddDevice` descriptor has no callback or
+  queue field.
+
+On the console, the pad tester's `vib L S` command (a foreground app calling
+`scePadSetVibration` on the virtual pad) returns 0, so the driver accepts the output.
+`hid_output_probe.c` then tried read-shaped requests with the virtual pad's handle: `0xc0184852`
+modes 0-31, `0x8018482b/2e`, `0xc018482b/2e`, `0xc0184853`, `0x8010482b/2e` and
+`0xc0104870/71/7b/7c`. All returned `0x803b000x` errors except `0xc0104870` (rc 0, no data), and
+the probe process died after its first pass. That suggests one of these calls has side effects,
+so do not repeat the probe unchanged.
+
+The remaining routes are inside the kernel driver: its ioctl switch, or the virtual device's
+state in kernel memory. They need kernel-level work that can panic the console if done wrong.
+Adaptive triggers have the same blocker, and neither the Android nor the tvOS Moonlight client
+applies the `0x5503` message today.
+
