@@ -1233,3 +1233,35 @@ Read-only. Lists console processes with their run state and kernel wait message
 against the SDK header's 1,088, so the probe steps by the kernel's `ki_structsize`
 and reads the FreeBSD prefix. `-DPROC_THREADS_MATCH="payload"` limits the output to
 matching commands; each line includes the live thread count.
+
+## Virtual-pad report layout from libScePad (`module_dump.c`, `pad_readback.c`)
+
+`module_dump.c` copies the decrypted, mapped code of a system library loaded in
+its own process (default `libScePad.sprx`) with `kernel_proc_copyout`, plus the
+addresses of selected exports, for offline disassembly (`llvm-objcopy -I binary`,
+then `llvm-objdump -d`). On 13.60 `scePadVirtualDeviceInsertData` is at module
+offset `0xda20`; it builds the 160-byte report from a 120-byte `ScePadData` and
+issues ioctl `0x8018482c`:
+
+| ScePadData | Report |
+|---|---|
+| buttons `0x00` (u32, copied as is) | `0x0c` |
+| sticks `0x04` | `0x10` |
+| L2/R2 `0x08`/`0x09` | `0x14`/`0x15` |
+| constant 1 | `0x17` |
+| touch count `0x34`, clamped to 2 | `0x1c` |
+| touch *i* id `0x40+8i` | `0x20+8i` |
+| touch *i* x, y (u16 each) `0x3c+8i` | `0x24+8i` |
+| orientation x, y, z, w `0x0c..0x1b` | `0x78..0x87` |
+| angular velocity x, y, z `0x28..0x33` | `0x88..0x93` |
+| acceleration x `0x1c` | `0x94` |
+| acceleration y, z `0x20..0x27` | `0x98..0x9f` |
+
+The motion floats go through a `vpermps` with indices `(0,1,2,3,7,0,0,4)` at
+module offset `0x1f400`, then the gyro y/z floats are blended into slots 5 and 6.
+
+`pad_readback.c` tries to read the pad back through libScePad from a payload.
+On 13.60 it still fails even after `scePadSetProcessPrivilege(1)`:
+`scePadOpen(user, 0, 0, NULL)` returns `0x809b0081`, and `scePadGetHandle` returns
+`0x80920008`. Only a foreground application can read pad state.
+
