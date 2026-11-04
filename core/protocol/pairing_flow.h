@@ -17,6 +17,9 @@ typedef struct {
  * State/registry/system context outlive flow; identity and URL are copied. */
 sp5_pair_flow *sp5_pair_flow_create(const sp5_pair_flow_config *config);
 void sp5_pair_flow_destroy(sp5_pair_flow *flow);
+/* Replaces the copied PIN URL (the console address changed). Later prompts use
+ * it; an invalid URL is refused and the previous one kept. */
+bool sp5_pair_flow_set_pin_url(sp5_pair_flow *flow, const char *pin_url);
 /* Compatible with sp5_http_config.pair. A deferred response retains only a
  * request ID in the transport's fixed connection pool, not borrowed queries.
  * Also handles Moonlight's unauthenticated GET /unpair abort: it ends only the

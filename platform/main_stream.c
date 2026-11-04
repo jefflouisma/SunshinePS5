@@ -94,6 +94,8 @@ enum {
     CONTROL_PORT = 47999,
     LEGACY_TAKEOVER_PORT = 47990,
     PLAY_DEADLINE_US = 30000000,
+    ADDRESS_CHECK_INTERVAL_US = 2000000,
+    ACCEPT_ERROR_INTERVAL_US = 5000000,
     WEB_PORT_DEFAULT = 8081,
     RUN_SECONDS_DEFAULT = 0,
     VIDEO_DEADLINE_US = 100000,
@@ -179,6 +181,11 @@ typedef struct {
     uint64_t cleanup_retry_us;
     uint64_t lifecycle_started_us;
     char launch_peer[INET_ADDRSTRLEN];
+    /* Served console address. Without --bind it follows the console: when it
+     * disappears from every interface the idle host rebinds to the new one. */
+    char address[INET_ADDRSTRLEN];
+    bool address_fixed, address_lost_reported;
+    uint64_t address_check_us, accept_error_us;
     char web_authority[64];
     char pin_url[128];
     char client_session_id[128];
@@ -201,6 +208,28 @@ typedef struct {
     sp5_reason worker_error;
 } stream_host;
 
+/* stdout is the payload loader's socket to whoever sent the ELF. It goes away
+ * when that terminal closes or the console's address changes, so the log is
+ * best effort: a line that cannot be sent at once is dropped, and after a hard
+ * error the host stops writing. Log delivery never blocks or fails host work. */
+static atomic_bool log_closed;
+static atomic_bool log_line_open;
+
+static bool log_send(const char *data, size_t size, size_t *sent)
+{
+    ssize_t count = send(STDOUT_FILENO, data, size, MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (count < 0 && errno == ENOTSOCK)
+        count = write(STDOUT_FILENO, data, size);
+    if (count < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+            atomic_store(&log_closed, true);
+        *sent = 0;
+        return false;
+    }
+    *sent = (size_t)count;
+    return true;
+}
+
 static int emit(const char *format, ...)
 {
     char output[1024];
@@ -210,7 +239,18 @@ static int emit(const char *format, ...)
     va_end(arguments);
     if (size < 0 || (size_t)size >= sizeof(output))
         return -1;
-    return fputs(output, stdout) == EOF ? -1 : size;
+    if (atomic_load(&log_closed))
+        return size;
+    size_t sent = 0;
+    /* End a line cut short by a full send buffer before starting the next. */
+    if (atomic_load(&log_line_open)) {
+        if (!log_send("\n", 1, &sent) || sent != 1)
+            return size;
+        atomic_store(&log_line_open, false);
+    }
+    if (log_send(output, (size_t)size, &sent) && sent > 0 && sent < (size_t)size)
+        atomic_store(&log_line_open, true);
+    return size;
 }
 
 static volatile sig_atomic_t interrupted;
@@ -497,6 +537,23 @@ static const char *detect_bind_address(void)
     }
     freeifaddrs(interfaces);
     return found;
+}
+
+/* True while an up interface still carries the served IPv4 address. */
+static bool address_assigned(const char *address)
+{
+    struct in_addr wanted;
+    struct ifaddrs *interfaces = NULL;
+    if (inet_pton(AF_INET, address, &wanted) != 1 || getifaddrs(&interfaces) != 0)
+        return true; /* unknown: keep serving rather than rebind on a failed query */
+    bool assigned = false;
+    for (struct ifaddrs *at = interfaces; at != NULL && !assigned; at = at->ifa_next)
+        assigned =
+            at->ifa_addr != NULL && at->ifa_addr->sa_family == AF_INET &&
+            (at->ifa_flags & IFF_UP) != 0 &&
+            ((const struct sockaddr_in *)(void *)at->ifa_addr)->sin_addr.s_addr == wanted.s_addr;
+    freeifaddrs(interfaces);
+    return assigned;
 }
 
 /* Creates missing components of an absolute state path as 0700 directories so
@@ -1416,7 +1473,17 @@ static int accept_connection(stream_host *h, int listener, bool secure, bool rts
     socklen_t size = sizeof(remote);
     int fd = accept(listener, (struct sockaddr *)&remote, &size);
     if (fd < 0) {
-        REQUIRE(errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR);
+        /* An aborted handshake, a network change or descriptor exhaustion
+         * fails only this accept; the listener keeps serving. */
+        int error = errno;
+        uint64_t now = now_us();
+        if (error != EAGAIN && error != EWOULDBLOCK && error != EINTR &&
+            now - h->accept_error_us >= ACCEPT_ERROR_INTERVAL_US) {
+            h->accept_error_us = now;
+            (void)emit("{\"event\":\"accept_error\",\"synthetic\":false,\"diagnostic\":true,"
+                       "\"errno\":%d}\n",
+                       error);
+        }
         return 0;
     }
     char peer[INET_ADDRSTRLEN];
@@ -1834,6 +1901,18 @@ static void takeover_accept(stream_host *h, bool legacy, bool *stop, const char 
     (void)close(client);
 }
 
+static sp5_web *create_web(stream_host *h, const char *authority)
+{
+    sp5_web_config config = {.store = h->store,
+                             .host = &h->host,
+                             .session = h->session,
+                             .pairing = h->pairing,
+                             .pair_flow = h->pair,
+                             .authority = authority,
+                             .extensions = {.context = h, .route = console_web_route}};
+    return sp5_web_create(&config);
+}
+
 static int start_stream(stream_host *h)
 {
     for (size_t i = 0; i < 3; ++i)
@@ -1966,14 +2045,7 @@ static int start_stream(stream_host *h)
         (void)fputs("could not bind a streaming listener\n", stderr);
         return 1;
     }
-    sp5_web_config wc = {.store = h->store,
-                         .host = &h->host,
-                         .session = h->session,
-                         .pairing = h->pairing,
-                         .pair_flow = h->pair,
-                         .authority = h->web_authority,
-                         .extensions = {.context = h, .route = console_web_route}};
-    sp5_web *web = sp5_web_create(&wc);
+    sp5_web *web = create_web(h, h->web_authority);
     if (web == NULL) {
         (void)close(web_listener);
         (void)fputs("could not create the web service\n", stderr);
@@ -1984,6 +2056,92 @@ static int start_stream(stream_host *h)
              h->web_authority) < 0)
         return 1;
     return 0;
+}
+
+static void close_all(const int *fds, size_t count)
+{
+    for (size_t i = 0; i < count; ++i)
+        if (fds[i] >= 0)
+            (void)close(fds[i]);
+}
+
+/* Moves every listener to the console's new address. Only runs between
+ * sessions; the controller's /dev/hid descriptor stays with this process, so
+ * the console keeps its pad and user assignment. All new sockets are bound
+ * before anything is closed: on failure the host keeps its old state and the
+ * next check retries. */
+static bool rebind_address(stream_host *h, connection *connections, const char *next)
+{
+    char authority[sizeof(h->web_authority)];
+    char pin_url[sizeof(h->pin_url)];
+    int fds[6] = {sp5_console_web_listen(next, h->options.web_port, authority, sizeof(authority)),
+                  open_socket(SOCK_STREAM, next, h->options.http_port),
+                  open_socket(SOCK_STREAM, next, SECURE_HTTP_PORT),
+                  open_socket(SOCK_STREAM, next, RTSP_PORT),
+                  open_socket(SOCK_DGRAM, next, VIDEO_PORT),
+                  open_socket(SOCK_DGRAM, next, AUDIO_PORT)};
+    bool bound = true;
+    for (size_t i = 0; i < 6; ++i)
+        bound = bound && fds[i] >= 0;
+    int url_size = bound ? snprintf(pin_url, sizeof(pin_url), "http://%s/", authority) : -1;
+    sp5_web *web = url_size > 0 && (size_t)url_size < sizeof(pin_url) &&
+                           strlen(next) < sizeof(h->address) &&
+                           strlen(next) < sizeof(h->host.address)
+                       ? create_web(h, authority)
+                       : NULL;
+    if (web == NULL || !sp5_pair_flow_set_pin_url(h->pair, pin_url)) {
+        sp5_web_destroy(web);
+        close_all(fds, 6);
+        return false;
+    }
+    for (size_t i = 0; i < CONNECTIONS; ++i)
+        close_connection(&connections[i]);
+    sp5_console_web_close(&h->web_service);
+    sp5_web_destroy(h->web_service.web);
+    sp5_console_web_init(&h->web_service, web, fds[0]);
+    int old[5] = {h->listeners[0], h->listeners[1], h->listeners[2], h->video_socket,
+                  h->audio_socket};
+    close_all(old, 5);
+    for (size_t i = 0; i < 3; ++i)
+        h->listeners[i] = fds[i + 1];
+    h->video_socket = fds[4];
+    h->audio_socket = fds[5];
+    sp5_rtsp_destroy(h->rtsp); /* a launch prepared for the old address */
+    h->rtsp = NULL;
+    char previous[sizeof(h->address)];
+    memcpy(previous, h->address, sizeof(previous));
+    memcpy(h->address, next, strlen(next) + 1);
+    memcpy(h->host.address, next, strlen(next) + 1);
+    memcpy(h->web_authority, authority, strlen(authority) + 1);
+    memcpy(h->pin_url, pin_url, (size_t)url_size + 1);
+    (void)emit("{\"event\":\"address_changed\",\"synthetic\":false,\"diagnostic\":true,"
+               "\"from\":\"%s\",\"to\":\"%s\",\"web\":\"http://%s\"}\n",
+               previous, h->address, h->web_authority);
+    return true;
+}
+
+/* Rechecks the served address between sessions. A console whose address
+ * changed (new network, DHCP renewal) is served on its new address without
+ * resending the payload. */
+static void follow_address(stream_host *h, connection *connections, uint64_t now)
+{
+    if (h->address_fixed || now < h->address_check_us)
+        return;
+    h->address_check_us = now + ADDRESS_CHECK_INTERVAL_US;
+    if (address_assigned(h->address)) {
+        h->address_lost_reported = false;
+        return;
+    }
+    const char *next = detect_bind_address();
+    if (next != NULL && rebind_address(h, connections, next)) {
+        h->address_lost_reported = false;
+        return;
+    }
+    if (!h->address_lost_reported)
+        (void)emit("{\"event\":\"address_lost\",\"synthetic\":false,\"diagnostic\":true,"
+                   "\"address\":\"%s\",\"replacement\":%s}\n",
+                   h->address, next != NULL ? "\"rebind_failed\"" : "null");
+    h->address_lost_reported = true;
 }
 
 int main(int argc, char **argv)
@@ -2003,13 +2161,16 @@ int main(int argc, char **argv)
         free(h);
         return 0;
     }
+    h->address_fixed = h->options.bind_address != NULL;
     if (h->options.bind_address == NULL)
         h->options.bind_address = detect_bind_address();
-    if (h->options.bind_address == NULL) {
+    if (h->options.bind_address == NULL || strlen(h->options.bind_address) >= sizeof(h->address)) {
         (void)fputs("no private IPv4 console address found; pass --bind IPV4\n", stderr);
         free(h);
         return 64;
     }
+    memcpy(h->address, h->options.bind_address, strlen(h->options.bind_address) + 1);
+    h->options.bind_address = h->address;
     struct in_addr bind_address;
     if (inet_pton(AF_INET, h->options.bind_address, &bind_address) != 1 ||
         !sp5_peer_permitted(h->options.bind_address, false)) {
@@ -2065,6 +2226,7 @@ int main(int argc, char **argv)
         return 1;
     }
     (void)nonblocking(STDIN_FILENO);
+    (void)nonblocking(STDERR_FILENO); /* diagnostics must not stall on a gone log peer */
     sp5_optional_u64 clock_wall = wall_us();
     (void)emit("{\"event\":\"clock\",\"synthetic\":false,\"diagnostic\":true,"
                "\"wall_us\":%llu,\"monotonic_us\":%llu}\n",
@@ -2127,6 +2289,8 @@ int main(int argc, char **argv)
         }
         if (stop && !h->running)
             break;
+        if (!stop && !h->running && h->lifecycle == NULL && !h->web_service.stopping)
+            follow_address(h, connections, budget_now);
         struct pollfd polls[6 + SP5_CONSOLE_WEB_POLLS] = {
             {watch_stdin ? STDIN_FILENO : -1, POLLIN, 0},
             {h->listeners[0], POLLIN, 0},

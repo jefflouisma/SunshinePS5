@@ -181,18 +181,26 @@ sp5_result sp5_pairing_verify_client(sp5_bytes certificate_pem, sp5_bytes server
     return valid ? sp5_success() : sp5_failure(SP5_REASON_OWNERSHIP);
 }
 
+static bool valid_pin_url(const char *pin_url)
+{
+    if (pin_url == NULL || strlen(pin_url) >= sizeof(((sp5_pair_flow *)NULL)->pin_url)) {
+        return false;
+    }
+    for (size_t i = 0; pin_url[i] != 0; ++i) {
+        if ((unsigned char)pin_url[i] <= 32 || (unsigned char)pin_url[i] >= 127) {
+            return false;
+        }
+    }
+    return true;
+}
+
 sp5_pair_flow *sp5_pair_flow_create(const sp5_pair_flow_config *config)
 {
     if (config == NULL || config->state == NULL || config->devices == NULL ||
         config->system.notify == NULL || config->private_key_pem.data == NULL ||
         config->private_key_pem.size == 0 || config->private_key_pem.size > SP5_IDENTITY_CAPACITY ||
-        config->pin_url == NULL || strlen(config->pin_url) >= 192) {
+        !valid_pin_url(config->pin_url)) {
         return NULL;
-    }
-    for (size_t i = 0; config->pin_url[i] != 0; ++i) {
-        if ((unsigned char)config->pin_url[i] <= 32 || (unsigned char)config->pin_url[i] >= 127) {
-            return NULL;
-        }
     }
     sp5_pair_flow *flow = calloc(1, sizeof(*flow));
     if (flow == NULL) {
@@ -218,6 +226,15 @@ sp5_pair_flow *sp5_pair_flow_create(const sp5_pair_flow_config *config)
     flow->config.private_key_pem = (sp5_bytes){0};
     flow->config.pin_url = NULL;
     return flow;
+}
+
+bool sp5_pair_flow_set_pin_url(sp5_pair_flow *flow, const char *pin_url)
+{
+    if (flow == NULL || !valid_pin_url(pin_url)) {
+        return false;
+    }
+    memmove(flow->pin_url, pin_url, strlen(pin_url) + 1);
+    return true;
 }
 
 void sp5_pair_flow_destroy(sp5_pair_flow *flow)

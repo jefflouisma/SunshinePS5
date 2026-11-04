@@ -442,10 +442,14 @@ int main(void)
                                    .pin_url = "http://10.0.0.2:47990"};
     sp5_pair_flow *flow = sp5_pair_flow_create(&config);
     CHECK(flow != NULL);
+    CHECK(!sp5_pair_flow_set_pin_url(flow, "http://10.0.0.3:8081/ x"));
+    CHECK(!sp5_pair_flow_set_pin_url(flow, NULL));
+    CHECK(sp5_pair_flow_set_pin_url(flow, "http://10.0.0.3:8081/"));
     uint8_t fields[8192];
     sp5_http_response response = {.fields = {fields, sizeof(fields), 0}};
     CHECK(exchange(flow, state, &server, &client, &response, 1, &storage, BAD_SIGNATURE) == 0);
     CHECK(sp5_devices_count(devices) == 0 && storage.notifications == 1);
+    CHECK(strstr(storage.last_notification, "Enter its PIN at http://10.0.0.3:8081/.") != NULL);
     CHECK(exchange(flow, state, &server, &client, &response, 10, &storage, GOOD_PROOF) == 0);
     sp5_bytes certificate = {client.cert, client.cert_size};
     CHECK(sp5_devices_authorized(devices, certificate));
