@@ -94,6 +94,7 @@ enum {
     CONTROL_PORT = 47999,
     LEGACY_TAKEOVER_PORT = 47990,
     PLAY_DEADLINE_US = 30000000,
+    KEYFRAME_RESTART_INTERVAL_US = 1000000,
     ADDRESS_CHECK_INTERVAL_US = 2000000,
     ACCEPT_ERROR_INTERVAL_US = 5000000,
     WEB_PORT_DEFAULT = 8081,
@@ -200,7 +201,12 @@ typedef struct {
     atomic_uint_fast64_t input_count, video_count, audio_count;
     atomic_uint_fast64_t thread_cpu_us[5];
     uint64_t video_acquire_us, video_encode_us, video_send_us;
-    uint32_t video_timing_frames;
+    uint32_t video_timing_frames, video_key_frames;
+    /* Set by the input owner when Moonlight asks for an IDR (0x0302) or
+     * reports lost reference frames (0x0301); served by the video owner. */
+    atomic_bool keyframe_requested;
+    uint64_t keyframe_restart_us;
+    bool keyframe_check; /* report whether the first record after a restart is an IDR */
     uint32_t video_sample_acquire[64], video_sample_encode[64];
     uint32_t video_sample_send[64], video_sample_pipeline[64];
     atomic_bool protection_assumed;
@@ -681,6 +687,22 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
     if (deadline.ticks > UINT64_MAX - VIDEO_DEADLINE_US)
         return 0;
     deadline.ticks += VIDEO_DEADLINE_US;
+    /* A client that lost a frame shows nothing until the next IDR, so a
+     * keyframe request restarts the encoder stream (at most once a second;
+     * further requests while it recovers are absorbed). */
+    if (atomic_load_explicit(&h->keyframe_requested, memory_order_acquire) &&
+        begin_us - h->keyframe_restart_us >= KEYFRAME_RESTART_INTERVAL_US) {
+        atomic_store_explicit(&h->keyframe_requested, false, memory_order_release);
+        h->keyframe_restart_us = begin_us;
+        sp5_result restarted = sp5_ps5_capture_restart(&h->capture);
+        (void)emit("{\"event\":\"keyframe_restart\",\"synthetic\":false,\"diagnostic\":true,"
+                   "\"ok\":%s,\"reason\":%d,\"restart_us\":%llu}\n",
+                   restarted.status == SP5_OK ? "true" : "false", (int)restarted.reason,
+                   (unsigned long long)(now_us() - begin_us));
+        if (restarted.status != SP5_OK)
+            return 0;
+        h->keyframe_check = true;
+    }
     sp5_video_frame frame;
     sp5_result acquired =
         sp5_ps5_capture_operations(&h->capture).acquire(&h->capture, deadline, false, &frame);
@@ -701,6 +723,13 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
     if (encoded_result.status != SP5_OK || released.status != SP5_OK)
         return 0;
     uint64_t encoded_us = now_us();
+    if (h->keyframe_check) {
+        h->keyframe_check = false;
+        (void)emit("{\"event\":\"keyframe_first\",\"synthetic\":false,\"diagnostic\":true,"
+                   "\"key_frame\":%s,\"after_restart_us\":%llu}\n",
+                   encoded.key_frame ? "true" : "false",
+                   (unsigned long long)(encoded_us - h->keyframe_restart_us));
+    }
     /* Acquire blocks until the encoder emits the next record, so processing
      * time starts when the record arrives, not when the wait began. */
     uint64_t elapsed = encoded_us >= acquired_us ? encoded_us - acquired_us : 0;
@@ -753,21 +782,23 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
     h->video_sample_encode[index] = encode_us;
     h->video_sample_send[index] = send_us;
     h->video_sample_pipeline[index] = encode_us + send_us; /* excludes the wait for the record */
+    if (encoded.key_frame)
+        ++h->video_key_frames;
     if (++h->video_timing_frames >= 60) {
         uint64_t count = h->video_timing_frames;
         (void)emit("{\"event\":\"video_timing\",\"synthetic\":false,\"diagnostic\":true,"
                    "\"frames\":%llu,\"acquire_us\":%llu,\"encode_us\":%llu,\"send_us\":%llu,"
                    "\"acquire_p99_us\":%u,\"encode_p99_us\":%u,\"send_p99_us\":%u,"
-                   "\"pipeline_p99_us\":%u}\n",
+                   "\"pipeline_p99_us\":%u,\"key_frames\":%u}\n",
                    (unsigned long long)count, (unsigned long long)(h->video_acquire_us / count),
                    (unsigned long long)(h->video_encode_us / count),
                    (unsigned long long)(h->video_send_us / count),
                    p99_u32(h->video_sample_acquire, (size_t)count),
                    p99_u32(h->video_sample_encode, (size_t)count),
                    p99_u32(h->video_sample_send, (size_t)count),
-                   p99_u32(h->video_sample_pipeline, (size_t)count));
+                   p99_u32(h->video_sample_pipeline, (size_t)count), h->video_key_frames);
         h->video_acquire_us = h->video_encode_us = h->video_send_us = 0;
-        h->video_timing_frames = 0;
+        h->video_timing_frames = h->video_key_frames = 0;
     }
     atomic_fetch_add_explicit(&h->video_count, 1, memory_order_relaxed);
     return 1;
@@ -920,6 +951,13 @@ static void *input_owner(void *context)
         unsigned drained = 0;
         while (drained++ < SP5_CONTROL_QUEUE_CAPACITY &&
                sp5_control_take(h->control, &event).status == SP5_OK) {
+            if (event.type == 0x0302 || event.type == 0x0301) {
+                atomic_store_explicit(&h->keyframe_requested, true, memory_order_release);
+                (void)emit("{\"event\":\"keyframe_request\",\"synthetic\":false,"
+                           "\"diagnostic\":true,\"type\":%u}\n",
+                           event.type);
+                continue;
+            }
             if (event.type == 0x0206) {
                 sp5_timestamp received = {event.received_us, 1, 1, SP5_VALIDITY_VALID,
                                           SP5_REASON_NONE};
@@ -1153,6 +1191,9 @@ static int play(stream_host *h)
     atomic_store(&h->metrics_done, false);
     atomic_store(&h->audio_done, false);
     atomic_store(&h->end_request, -1);
+    atomic_store(&h->keyframe_requested, false); /* the new stream starts with an IDR */
+    h->keyframe_check = false;
+    h->video_timing_frames = h->video_key_frames = 0;
     h->worker_error = SP5_REASON_NONE;
     if (pthread_create(&h->input_thread, NULL, input_owner, h) != 0) {
         atomic_store(&h->stopped, true);
@@ -2195,6 +2236,7 @@ int main(int argc, char **argv)
     for (size_t slot = 0; slot < CPU_SLOTS; ++slot)
         atomic_init(&h->thread_cpu_us[slot], 0);
     atomic_init(&h->protection_assumed, false);
+    atomic_init(&h->keyframe_requested, false);
     sp5_ps5_capture_init(&h->capture);
     sp5_ps5_encoder_init(&h->encoder);
     sp5_ps5_audio_init(&h->audio_adapter);

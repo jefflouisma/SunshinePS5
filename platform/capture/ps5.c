@@ -627,6 +627,25 @@ static sp5_result capture_close(void *context)
     return capture_close_state(capture);
 }
 
+sp5_result sp5_ps5_capture_restart(sp5_ps5_capture *capture)
+{
+    if (capture == NULL)
+        return sp5_failure(SP5_REASON_INVALID_ARGUMENT);
+    if (!capture->opened || !capture->started || capture->leased)
+        return sp5_failure(SP5_REASON_OWNERSHIP);
+    int stopped = capture->api.stop(capture->handle);
+    capture->started = false;
+    int closed = capture->api.close(capture->handle);
+    /* As in capture_close_state, the handle is dropped even on close failure. */
+    capture->opened = false;
+    capture->handle = NULL;
+    if (stopped != 0 || closed != 0) {
+        capture->cleanup_failure = SP5_REASON_PLATFORM;
+        return sp5_failure(SP5_REASON_PLATFORM);
+    }
+    return video_open(capture);
+}
+
 void sp5_ps5_capture_init(sp5_ps5_capture *capture)
 {
     if (capture == NULL)
