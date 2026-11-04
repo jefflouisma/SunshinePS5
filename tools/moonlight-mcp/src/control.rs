@@ -319,6 +319,20 @@ impl ControlConnection {
     }
 
     pub fn send(&mut self, kind: u16, payload: &[u8], channel: u8, reliable: bool) -> Result<()> {
+        self.send_with(kind, payload, channel, reliable, false)
+    }
+
+    /// `sequenced` selects ENet unreliable-sequenced delivery for unreliable packets, which
+    /// moonlight-common-c uses for input (flags 0, InputStream.c); other unreliable traffic
+    /// (for example 0x5502 FEC status) stays unsequenced.
+    fn send_with(
+        &mut self,
+        kind: u16,
+        payload: &[u8],
+        channel: u8,
+        reliable: bool,
+        sequenced: bool,
+    ) -> Result<()> {
         ensure!(self.connected, "control connection is closed");
         ensure!(
             usize::from(channel) < CHANNEL_COUNT,
@@ -332,6 +346,8 @@ impl ControlConnection {
         let outgoing = self.cipher.encode(kind, payload, channel, reliable)?;
         let packet = if outgoing.reliable {
             Packet::reliable(outgoing.bytes)
+        } else if sequenced {
+            Packet::unreliable(outgoing.bytes)
         } else {
             Packet::unreliable_unsequenced(outgoing.bytes)
         };
@@ -348,7 +364,7 @@ impl ControlConnection {
     }
 
     pub fn send_input(&mut self, payload: &[u8], channel: u8, reliable: bool) -> Result<()> {
-        self.send(INPUT, payload, channel, reliable)
+        self.send_with(INPUT, payload, channel, reliable, true)
     }
 
     /// Processes at most one event so a busy peer cannot monopolize the caller's input loop.
