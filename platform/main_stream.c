@@ -95,6 +95,11 @@ enum {
     LEGACY_TAKEOVER_PORT = 47990,
     PLAY_DEADLINE_US = 30000000,
     KEYFRAME_RESTART_INTERVAL_US = 1000000,
+    KEYFRAME_WAIT_RECORDS = 30,
+    SOURCE_RETRY_US = 250000,
+    SOURCE_RECOVERY_US = 15000000,
+    SEND_RETRY_US = 20000,
+    SEND_DROP_LOG_INTERVAL_US = 1000000,
     ADDRESS_CHECK_INTERVAL_US = 2000000,
     ACCEPT_ERROR_INTERVAL_US = 5000000,
     WEB_PORT_DEFAULT = 8081,
@@ -206,7 +211,17 @@ typedef struct {
      * reports lost reference frames (0x0301); served by the video owner. */
     atomic_bool keyframe_requested;
     uint64_t keyframe_restart_us;
-    bool keyframe_check; /* report whether the first record after a restart is an IDR */
+    /* Video source lost (Avcap2 reads fail while the console changes video
+     * mode, e.g. when a game starts or closes); the video owner reopens it. */
+    bool source_recovering;
+    uint64_t source_lost_us, source_retry_us;
+    uint32_t source_attempts;
+    /* After a restart: records seen while waiting for its IDR (0 = not waiting). */
+    uint32_t keyframe_wait;
+    /* send_drops/send_drop_logged_us: video and audio owners both update them;
+     * a lost increment only skews a diagnostic count. */
+    _Atomic uint64_t send_drops;
+    uint64_t send_drop_logged_us;
     uint32_t video_sample_acquire[64], video_sample_encode[64];
     uint32_t video_sample_send[64], video_sample_pipeline[64];
     atomic_bool protection_assumed;
@@ -646,11 +661,47 @@ static bool learn_ping(stream_host *h, int fd, struct sockaddr_in *destination)
     return true;
 }
 
-static bool send_packet(int fd, const struct sockaddr_in *destination, sp5_bytes packet)
+/* A full interface queue (ENOBUFS) or socket buffer (EAGAIN) during a burst
+ * of large frames is transient: back off briefly and retry. Returns 0 or the
+ * errno of a send that still failed after SEND_RETRY_US. */
+static int send_packet(int fd, const struct sockaddr_in *destination, sp5_bytes packet)
 {
-    ssize_t sent = sendto(fd, packet.data, packet.size, 0, (const struct sockaddr *)destination,
-                          sizeof(*destination));
-    return sent >= 0 && (size_t)sent == packet.size;
+    uint64_t start = now_us();
+    for (;;) {
+        ssize_t sent = sendto(fd, packet.data, packet.size, 0, (const struct sockaddr *)destination,
+                              sizeof(*destination));
+        if (sent >= 0)
+            return (size_t)sent == packet.size ? 0 : EMSGSIZE;
+        int error = errno;
+        if ((error != ENOBUFS && error != EAGAIN && error != EWOULDBLOCK && error != EINTR) ||
+            now_us() - start >= SEND_RETRY_US)
+            return error;
+        struct timespec delay = {.tv_nsec = 200000};
+        (void)nanosleep(&delay, NULL);
+    }
+}
+
+/* Every media-owner failure that ends the session says where and why. */
+static int media_fail(const char *stage, int reason)
+{
+    (void)emit("{\"event\":\"media_error\",\"synthetic\":false,\"diagnostic\":true,"
+               "\"stage\":\"%s\",\"reason\":%d}\n",
+               stage, reason);
+    return 0;
+}
+
+/* A datagram that could not be sent loses its frame or audio packet; the
+ * client recovers (an IDR request for video), so the session continues. */
+static void note_send_drop(stream_host *h, bool video, int error)
+{
+    uint64_t now = now_us();
+    ++h->send_drops;
+    if (now - h->send_drop_logged_us < SEND_DROP_LOG_INTERVAL_US)
+        return;
+    h->send_drop_logged_us = now;
+    (void)emit("{\"event\":\"send_drop\",\"synthetic\":false,\"diagnostic\":true,"
+               "\"video\":%s,\"errno\":%d,\"drops\":%llu}\n",
+               video ? "true" : "false", error, (unsigned long long)h->send_drops);
 }
 
 static uint32_t p99_u32(const uint32_t *values, size_t count)
@@ -672,6 +723,35 @@ static uint32_t p99_u32(const uint32_t *values, size_t count)
     if (rank == 0)
         rank = 1;
     return sorted[rank - 1];
+}
+
+/* The console's video source changed under the open Avcap2 stream. Reopen
+ * it every SOURCE_RETRY_US until a read succeeds; the client keeps its last
+ * picture and the reopened stream starts with an IDR. Ends the session only
+ * if the source stays unavailable for SOURCE_RECOVERY_US. */
+static int recover_source(stream_host *h, uint64_t now, sp5_reason reason)
+{
+    if (!h->source_recovering) {
+        h->source_recovering = true;
+        h->source_lost_us = now;
+        h->source_retry_us = now;
+        h->source_attempts = 0;
+        (void)emit("{\"event\":\"source_lost\",\"synthetic\":false,\"diagnostic\":true,"
+                   "\"reason\":%d,\"read_status\":\"0x%08x\",\"read_size\":%u}\n",
+                   (int)reason, (unsigned)h->capture.last_read_status,
+                   (unsigned)h->capture.last_read_size);
+    }
+    if (now - h->source_lost_us >= SOURCE_RECOVERY_US)
+        return media_fail("video_source", (int)reason);
+    if (now < h->source_retry_us)
+        return 2;
+    h->source_retry_us = now + SOURCE_RETRY_US;
+    ++h->source_attempts;
+    if (sp5_ps5_capture_restart(&h->capture).status == SP5_OK) {
+        h->keyframe_restart_us = now;
+        h->keyframe_wait = 1;
+    }
+    return 2;
 }
 
 /* Returns 1 after sending a record, 2 when no record was available (acquire
@@ -700,19 +780,28 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
                    restarted.status == SP5_OK ? "true" : "false", (int)restarted.reason,
                    (unsigned long long)(now_us() - begin_us));
         if (restarted.status != SP5_OK)
-            return 0;
-        h->keyframe_check = true;
+            return recover_source(h, begin_us, restarted.reason);
+        h->keyframe_wait = 1;
     }
     sp5_video_frame frame;
     sp5_result acquired =
         sp5_ps5_capture_operations(&h->capture).acquire(&h->capture, deadline, false, &frame);
     if (acquired.status != SP5_OK) {
-        return acquired.reason == SP5_REASON_WOULD_BLOCK || acquired.reason == SP5_REASON_TIMEOUT ||
-                       acquired.reason == SP5_REASON_COVERAGE_GAP
-                   ? 2
-                   : 0;
+        if (acquired.reason == SP5_REASON_WOULD_BLOCK || acquired.reason == SP5_REASON_TIMEOUT ||
+            acquired.reason == SP5_REASON_COVERAGE_GAP)
+            return 2;
+        if (acquired.reason == SP5_REASON_PLATFORM ||
+            (h->source_recovering && acquired.reason == SP5_REASON_OWNERSHIP))
+            return recover_source(h, begin_us, acquired.reason);
+        return media_fail("video_acquire", (int)acquired.reason);
     }
     uint64_t acquired_us = now_us();
+    if (h->source_recovering) {
+        h->source_recovering = false;
+        (void)emit("{\"event\":\"source_recovered\",\"synthetic\":false,\"diagnostic\":true,"
+                   "\"after_us\":%llu,\"attempts\":%u}\n",
+                   (unsigned long long)(acquired_us - h->source_lost_us), h->source_attempts);
+    }
     h->video_buffer.size = 0;
     sp5_encoded_frame encoded;
     sp5_result encoded_result =
@@ -720,15 +809,26 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
             .encode(&h->encoder, &frame, false, deadline, false, &h->video_buffer, &encoded);
     sp5_result released =
         sp5_ps5_capture_operations(&h->capture).release(&h->capture, frame.lease_id);
-    if (encoded_result.status != SP5_OK || released.status != SP5_OK)
-        return 0;
+    if (encoded_result.status != SP5_OK)
+        return media_fail("video_encode", (int)encoded_result.reason);
+    if (released.status != SP5_OK)
+        return media_fail("video_release", (int)released.reason);
     uint64_t encoded_us = now_us();
-    if (h->keyframe_check) {
-        h->keyframe_check = false;
-        (void)emit("{\"event\":\"keyframe_first\",\"synthetic\":false,\"diagnostic\":true,"
-                   "\"key_frame\":%s,\"after_restart_us\":%llu}\n",
-                   encoded.key_frame ? "true" : "false",
-                   (unsigned long long)(encoded_us - h->keyframe_restart_us));
+    /* A record queued before the restart can still arrive first; if no IDR
+     * follows within KEYFRAME_WAIT_RECORDS, ask for another restart. */
+    if (h->keyframe_wait != 0) {
+        if (encoded.key_frame) {
+            (void)emit("{\"event\":\"keyframe_first\",\"synthetic\":false,\"diagnostic\":true,"
+                       "\"records\":%u,\"after_restart_us\":%llu}\n",
+                       h->keyframe_wait, (unsigned long long)(encoded_us - h->keyframe_restart_us));
+            h->keyframe_wait = 0;
+        } else if (++h->keyframe_wait > KEYFRAME_WAIT_RECORDS) {
+            (void)emit("{\"event\":\"keyframe_missing\",\"synthetic\":false,"
+                       "\"diagnostic\":true,\"records\":%u}\n",
+                       KEYFRAME_WAIT_RECORDS);
+            h->keyframe_wait = 0;
+            atomic_store_explicit(&h->keyframe_requested, true, memory_order_release);
+        }
     }
     /* Acquire blocks until the encoder emits the next record, so processing
      * time starts when the record arrives, not when the wait began. */
@@ -743,7 +843,7 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
         sp5_buffer *buffer = &h->video_buffer;
         if (buffer->data == NULL || parameter_size > buffer->capacity ||
             buffer->size > buffer->capacity - parameter_size)
-            return 0;
+            return media_fail("video_parameters", (int)SP5_REASON_CAPACITY);
         memmove(buffer->data + parameter_size, buffer->data, buffer->size);
         memcpy(buffer->data, parameters, parameter_size);
         buffer->size += parameter_size;
@@ -753,8 +853,9 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
                                    .rtp_timestamp = (uint32_t)(frame.frame_id * 1500),
                                    .key_frame = encoded.key_frame,
                                    .processing_us = {true, elapsed}};
-    if (sp5_video_begin(h->video, &input).status != SP5_OK)
-        return 0;
+    sp5_result begun = sp5_video_begin(h->video, &input);
+    if (begun.status != SP5_OK)
+        return media_fail("video_begin", (int)begun.reason);
     uint8_t wire[SP5_VIDEO_WIRE_LIMIT];
     sp5_buffer output = {wire, sizeof(wire), 0};
     sp5_result result;
@@ -763,13 +864,16 @@ static int send_video(stream_host *h, const struct sockaddr_in *destination)
             sp5_video_cancel(h->video);
             return 1;
         }
-        if (!send_packet(h->video_socket, destination, (sp5_bytes){output.data, output.size})) {
+        int error =
+            send_packet(h->video_socket, destination, (sp5_bytes){output.data, output.size});
+        if (error != 0) {
             sp5_video_cancel(h->video);
-            return 0;
+            note_send_drop(h, true, error);
+            return 1;
         }
     }
     if (result.reason != SP5_REASON_WOULD_BLOCK)
-        return 0;
+        return media_fail("video_packetize", (int)result.reason);
     uint64_t sent_us = now_us();
     uint32_t acquire_us = acquired_us >= begin_us ? (uint32_t)(acquired_us - begin_us) : 0;
     uint32_t encode_us = encoded_us >= acquired_us ? (uint32_t)(encoded_us - acquired_us) : 0;
@@ -817,7 +921,7 @@ static int send_audio(stream_host *h, const struct sockaddr_in *destination)
     if (acquired.status != SP5_OK) {
         return acquired.reason == SP5_REASON_WOULD_BLOCK || acquired.reason == SP5_REASON_TIMEOUT
                    ? 2
-                   : 0;
+                   : media_fail("audio_acquire", (int)acquired.reason);
     }
     size_t frames = block.samples.size / (2 * sizeof(float));
     if (frames > DIAGNOSTIC_PCM_FRAMES - h->audio_pcm_frames)
@@ -829,7 +933,7 @@ static int send_audio(stream_host *h, const struct sockaddr_in *destination)
     sp5_result released =
         sp5_ps5_audio_ops(&h->audio_adapter).release(&h->audio_adapter, block.lease_id);
     if (released.status != SP5_OK)
-        return 0;
+        return media_fail("audio_release", (int)released.reason);
     uint32_t frame_samples = sp5_opus_encoder_frame_samples(h->opus);
     if (frame_samples == 0)
         return 0;
@@ -838,23 +942,30 @@ static int send_audio(stream_host *h, const struct sockaddr_in *destination)
         if (sp5_opus_encoder_encode_float(h->opus, h->audio_pcm, h->opus_size, &encoded).status !=
                 SP5_OK ||
             encoded.size > h->opus_size)
-            return 0;
+            return media_fail("audio_encode", (int)SP5_REASON_PLATFORM);
         if (encoded.size < h->opus_size)
             memset(h->audio_payload + encoded.size, 0, h->opus_size - encoded.size);
-        if (sp5_audio_submit(h->audio, (sp5_bytes){h->audio_payload, h->opus_size}).status !=
-            SP5_OK)
-            return 0;
+        sp5_result submitted =
+            sp5_audio_submit(h->audio, (sp5_bytes){h->audio_payload, h->opus_size});
+        if (submitted.status != SP5_OK)
+            return media_fail("audio_submit", (int)submitted.reason);
         uint8_t wire[SP5_AUDIO_WIRE_LIMIT];
         sp5_buffer output = {wire, sizeof(wire), 0};
         sp5_result result;
+        bool dropped = false; /* the packet must still be drained before the next submit */
         while ((result = sp5_audio_next(h->audio, &output)).status == SP5_OK) {
             if (atomic_load_explicit(&h->stopped, memory_order_acquire))
                 return 1;
-            if (!send_packet(h->audio_socket, destination, (sp5_bytes){output.data, output.size}))
-                return 0;
+            int error = dropped ? 0
+                                : send_packet(h->audio_socket, destination,
+                                              (sp5_bytes){output.data, output.size});
+            if (error != 0) {
+                dropped = true;
+                note_send_drop(h, false, error);
+            }
         }
         if (result.reason != SP5_REASON_WOULD_BLOCK)
-            return 0;
+            return media_fail("audio_packetize", (int)result.reason);
         atomic_fetch_add_explicit(&h->audio_count, 1, memory_order_relaxed);
         memmove(h->audio_pcm, h->audio_pcm + frame_samples * 2,
                 (h->audio_pcm_frames - frame_samples) * 2 * sizeof(float));
@@ -944,6 +1055,7 @@ static void *input_owner(void *context)
         sp5_result step = sp5_control_transport_step(h->transport, now_us());
         if (step.status != SP5_OK && !atomic_load_explicit(&h->stopped, memory_order_acquire)) {
             h->worker_error = step.reason;
+            (void)media_fail("control_step", (int)step.reason);
             (void)sp5_control_end(h->control, SP5_END_ERROR);
             break;
         }
@@ -1192,7 +1304,8 @@ static int play(stream_host *h)
     atomic_store(&h->audio_done, false);
     atomic_store(&h->end_request, -1);
     atomic_store(&h->keyframe_requested, false); /* the new stream starts with an IDR */
-    h->keyframe_check = false;
+    h->keyframe_wait = 0;
+    h->source_recovering = false;
     h->video_timing_frames = h->video_key_frames = 0;
     h->worker_error = SP5_REASON_NONE;
     if (pthread_create(&h->input_thread, NULL, input_owner, h) != 0) {

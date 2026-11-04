@@ -185,6 +185,10 @@ typedef struct {
     uint64_t next_lease;
     uint64_t live_lease;
     uint64_t next_frame_id;
+    /* Raw Avcap2 read status and record size of the last failed acquire, for
+     * diagnostics (a console video-mode change fails reads, e.g. on game launch). */
+    int32_t last_read_status;
+    uint32_t last_read_size;
     bool leased;
     sp5_reason cleanup_failure;
     size_t parameter_size;
@@ -201,10 +205,11 @@ typedef struct {
 void sp5_ps5_capture_init(sp5_ps5_capture *capture);
 sp5_capture_ops sp5_ps5_capture_operations(sp5_ps5_capture *capture);
 /* Avcap2 exposes no request-keyframe call, and its stream carries an IDR only
- * at start. Stops and closes the video stream of an open session and opens it
- * again, so the next record is an IDR; resource registration and the media
- * global stay held. Call between leases. On failure the session's capture is
- * unusable and capture_close still releases the rest. */
+ * at start. Stops and closes the video stream of an open session (if still
+ * open) and opens it again, so the next record is an IDR; resource
+ * registration and the media global stay held. Also recovers the stream after
+ * a console video-mode change fails its reads. Call between leases; a failed
+ * open may be retried, and capture_close still releases the rest. */
 sp5_result sp5_ps5_capture_restart(sp5_ps5_capture *capture);
 void sp5_ps5_capture_provenance(const sp5_ps5_capture *capture,
                                 sp5_platform_provenance *provenance);

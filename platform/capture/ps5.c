@@ -562,13 +562,19 @@ static sp5_result capture_acquire(void *context, sp5_timestamp deadline, bool me
     if ((uint32_t)rc == SP5_AVCAP2_OVERRUN)
         return sp5_failure(SP5_REASON_COVERAGE_GAP);
     if (rc < 0 || (size_t)rc > sizeof(capture->read_buffer) ||
-        load32(capture->info, 0x5c) != (uint32_t)rc)
+        load32(capture->info, 0x5c) != (uint32_t)rc) {
+        capture->last_read_status = rc;
+        capture->last_read_size = load32(capture->info, 0x5c);
         return sp5_failure(SP5_REASON_PLATFORM);
+    }
     size_t size = (size_t)rc;
     sp5_ps5_annexb_class classification =
         sp5_ps5_annexb_classify(capture->read_buffer, size, capture->codec);
-    if (classification == SP5_PS5_ANNEXB_INVALID)
+    if (classification == SP5_PS5_ANNEXB_INVALID) {
+        capture->last_read_status = rc;
+        capture->last_read_size = UINT32_MAX; /* marks an unparseable record */
         return sp5_failure(SP5_REASON_PLATFORM);
+    }
     if (end.ticks > deadline.ticks)
         return sp5_failure(SP5_REASON_TIMEOUT); /* Record is dropped before any lease. */
     const char *format = sp5_ps5_format_ref(capture->codec, capture->depth);
@@ -631,17 +637,21 @@ sp5_result sp5_ps5_capture_restart(sp5_ps5_capture *capture)
 {
     if (capture == NULL)
         return sp5_failure(SP5_REASON_INVALID_ARGUMENT);
-    if (!capture->opened || !capture->started || capture->leased)
+    /* The session's resource and media global must be held; the video stream
+     * itself may already be closed by an earlier restart that failed to open. */
+    if (!capture->global_acquired || !capture->requested || capture->leased)
         return sp5_failure(SP5_REASON_OWNERSHIP);
-    int stopped = capture->api.stop(capture->handle);
-    capture->started = false;
-    int closed = capture->api.close(capture->handle);
-    /* As in capture_close_state, the handle is dropped even on close failure. */
-    capture->opened = false;
-    capture->handle = NULL;
-    if (stopped != 0 || closed != 0) {
-        capture->cleanup_failure = SP5_REASON_PLATFORM;
-        return sp5_failure(SP5_REASON_PLATFORM);
+    if (capture->started) {
+        if (capture->api.stop(capture->handle) != 0)
+            capture->cleanup_failure = SP5_REASON_PLATFORM;
+        capture->started = false;
+    }
+    if (capture->opened) {
+        /* As in capture_close_state, the handle is dropped even on close failure. */
+        if (capture->api.close(capture->handle) != 0)
+            capture->cleanup_failure = SP5_REASON_PLATFORM;
+        capture->opened = false;
+        capture->handle = NULL;
     }
     return video_open(capture);
 }
