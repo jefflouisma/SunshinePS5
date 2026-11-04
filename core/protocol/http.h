@@ -12,6 +12,9 @@ typedef struct {
     unsigned code;
     bool deferred;
     sp5_buffer fields;
+    /* Optional static text for a non-200 root.status_message, which Moonlight
+     * shows the user. Printable ASCII without XML markup characters. */
+    const char *status_message;
 } sp5_http_response;
 sp5_result sp5_http_query(const sp5_request *request, const char *key, sp5_buffer *value,
                           bool *present);
@@ -41,6 +44,7 @@ typedef struct {
     uint8_t key[16], ping[8];
     uint32_t key_id, control_connect_data;
     uint32_t width, height, fps;
+    uint32_t audio_channels; /* surroundAudioInfo channel count; 2 when absent */
     bool hdr, encrypted_rtsp;
 } sp5_http_launch;
 sp5_result sp5_http_launch_read(const sp5_http_service *service, sp5_http_launch *launch);

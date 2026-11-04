@@ -257,6 +257,8 @@ static int routing(void)
           response.code == 200);
     CHECK(contains(response.fields, "<cancel>1</cancel>"));
     CHECK(sp5_session_read(session).id == 0 && !sp5_session_read(session).has_end_reason);
+    host.supported_mode_count = 1;
+    host.supported_modes[0] = (sp5_host_mode){1280, 720, 60, "h264", SP5_SDR, 100, 1000};
     const char *bad_launches[] = {
         "/launch?appid=1&appid=1",
         "/launch?appid=2&rikey=00112233445566778899aabbccddeeff&rikeyid=1&localAudioPlayMode=0",
@@ -273,9 +275,38 @@ static int routing(void)
                       .status == SP5_OK &&
               response.code == 400);
         CHECK(sp5_session_read(session).state == SP5_SESSION_ENDED);
+        CHECK(response.status_message == NULL);
+    }
+    /* Modes and audio the host does not offer are refused at launch with a
+     * message Moonlight shows, not later as an RTSP handshake failure. */
+    const char *refused_launches[][2] = {
+        {"/launch?appid=1&rikey=00112233445566778899aabbccddeeff&rikeyid=1&localAudioPlayMode=0&"
+         "mode=3840x2160x60",
+         "resolution or frame rate"},
+        {"/launch?appid=1&rikey=00112233445566778899aabbccddeeff&rikeyid=1&localAudioPlayMode=0&"
+         "mode=1280x720x120",
+         "resolution or frame rate"},
+        {"/launch?appid=1&rikey=00112233445566778899aabbccddeeff&rikeyid=1&localAudioPlayMode=0&"
+         "mode=1280x720x60&surroundAudioInfo=4128774",
+         "Stereo"},
+    };
+    for (size_t i = 0; i < sizeof(refused_launches) / sizeof(refused_launches[0]); ++i) {
+        request.target = bytes(refused_launches[i][0]);
+        CHECK(sp5_http_route(service, "10.0.0.1", false, server, &request, 3, (sp5_optional_u64){0},
+                             &response)
+                      .status == SP5_OK &&
+              response.code == 400);
+        CHECK(response.status_message != NULL &&
+              strstr(response.status_message, refused_launches[i][1]) != NULL);
+        CHECK(sp5_session_read(session).state == SP5_SESSION_ENDED);
+        uint8_t rendered[1024];
+        sp5_buffer wire = {rendered, sizeof(rendered), 0};
+        CHECK(sp5_http_render(&response, &wire).status == SP5_OK);
+        CHECK(contains((sp5_buffer){rendered, sizeof(rendered), wire.size},
+                       "<root status_code=\"400\" status_message=\"This host streams"));
     }
     request.target = bytes("/launch?appid=1&rikey=00112233445566778899aabbccddeeff&rikeyid=-1&"
-                           "localAudioPlayMode=0&mode=1280x720x60");
+                           "localAudioPlayMode=0&mode=1280x720x60&surroundAudioInfo=196610");
     CHECK(sp5_http_route(service, "10.0.0.1", false, server, &request, 4, (sp5_optional_u64){0},
                          &response)
                   .status == SP5_OK &&
@@ -291,8 +322,6 @@ static int routing(void)
                   .status == SP5_OK &&
           response.code == 409);
     CHECK(sp5_session_read(session).id == session_id);
-    host.supported_mode_count = 1;
-    host.supported_modes[0] = (sp5_host_mode){1280, 720, 60, "h264", SP5_SDR, 100, 1000};
     CHECK(sp5_session_configure(
               session, &host,
               &(sp5_session_parameters){.mode_index = 0, .requested_kbps = 100, .started_us = 4})

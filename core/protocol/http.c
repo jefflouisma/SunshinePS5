@@ -124,10 +124,22 @@ sp5_result sp5_http_render(const sp5_http_response *response, sp5_buffer *wire)
     if (response->deferred) {
         return sp5_failure(SP5_REASON_WOULD_BLOCK);
     }
-    char opening[80];
-    int opening_size = snprintf(
-        opening, sizeof(opening),
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"%u\">", response->code);
+    const char *message = response->code != 200 ? response->status_message : NULL;
+    for (const char *at = message; at != NULL && *at != 0; ++at) {
+        if (*at < 0x20 || *at > 0x7e || strchr("<>&\"'", *at) != NULL) {
+            return sp5_failure(SP5_REASON_INVALID_ARGUMENT);
+        }
+    }
+    char opening[320];
+    int opening_size =
+        message == NULL
+            ? snprintf(opening, sizeof(opening),
+                       "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"%u\">",
+                       response->code)
+            : snprintf(opening, sizeof(opening),
+                       "<?xml version=\"1.0\" encoding=\"utf-8\"?><root status_code=\"%u\" "
+                       "status_message=\"%s\">",
+                       response->code, message);
     if (opening_size < 0 || (size_t)opening_size >= sizeof(opening) ||
         response->fields.size > SP5_HTTP_LIMIT) {
         return sp5_failure(SP5_REASON_CAPACITY);
@@ -425,6 +437,15 @@ static sp5_result launch_parameters(const sp5_request *request, bool resume,
         return sp5_failure(SP5_REASON_INVALID_ARGUMENT);
     }
     launch->encrypted_rtsp = core_version >= 1;
+    TRY(query_text(request, "surroundAudioInfo", data, sizeof(data), false, &value));
+    launch->audio_channels = 2;
+    if (value.size != 0) {
+        uint32_t surround = 0;
+        if (!unsigned_decimal(value, &surround)) {
+            return sp5_failure(SP5_REASON_INVALID_ARGUMENT);
+        }
+        launch->audio_channels = surround & 0xffffU; /* channelMask << 16 | channelCount */
+    }
     TRY(query_text(request, "mode", data, sizeof(data), false, &value));
     if (value.size != 0) {
         uint32_t *parts[] = {&launch->width, &launch->height, &launch->fps};
@@ -444,6 +465,18 @@ static sp5_result launch_parameters(const sp5_request *request, bool resume,
     return sp5_success();
 }
 
+static bool offered_mode(const sp5_host *host, const sp5_http_launch *launch)
+{
+    for (size_t i = 0; i < host->supported_mode_count && i < SP5_MODE_CAPACITY; ++i) {
+        const sp5_host_mode *mode = &host->supported_modes[i];
+        if (mode->width == launch->width && mode->height == launch->height &&
+            mode->fps == launch->fps) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static sp5_result start_session(sp5_http_service *service, const sp5_request *request,
                                 sp5_bytes certificate, bool resume, sp5_http_response *response)
 {
@@ -456,6 +489,21 @@ static sp5_result start_session(sp5_http_service *service, const sp5_request *re
     if (launch_parameters(request, resume, &next).status != SP5_OK) {
         OPENSSL_cleanse(&next, sizeof(next));
         response->code = 400;
+        return sp5_success();
+    }
+    /* Refuse what RTSP negotiation would refuse later, while Moonlight can
+     * still show the reason instead of a generic handshake failure. */
+    const char *refusal = NULL;
+    if (next.audio_channels != 2) {
+        refusal = "This host streams stereo audio only. Set audio to Stereo in Moonlight settings.";
+    } else if (next.width != 0 && !offered_mode(service->config.host, &next)) {
+        refusal = "This host streams 1080p or 720p at 60 or 30 FPS. Change the resolution or "
+                  "frame rate in Moonlight settings.";
+    }
+    if (refusal != NULL) {
+        OPENSSL_cleanse(&next, sizeof(next));
+        response->code = 400;
+        response->status_message = refusal;
         return sp5_success();
     }
     if (service->next_session_id == UINT64_MAX || RAND_bytes(next.ping, sizeof(next.ping)) != 1 ||
@@ -521,6 +569,7 @@ sp5_result sp5_http_route(sp5_http_service *service, const char *peer, bool on_l
     response->fields.size = 0;
     response->deferred = false;
     response->code = 200;
+    response->status_message = NULL;
     if (!sp5_peer_permitted(peer, on_link)) {
         response->code = 403;
         return sp5_success();
