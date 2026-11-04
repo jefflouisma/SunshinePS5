@@ -1265,3 +1265,39 @@ On 13.60 it still fails even after `scePadSetProcessPrivilege(1)`:
 `scePadOpen(user, 0, 0, NULL)` returns `0x809b0081`, and `scePadGetHandle` returns
 `0x80920008`. Only a foreground application can read pad state.
 
+## Foreground pad tester (`pad_tester.c`, `fs_stage.c`, `pad_tester_read.py`)
+
+A payload cannot read pad state, but a foreground application can. `pad_tester.c`
+runs as a foreground app, opens the foreground user's standard pad, enables the
+motion sensor (`scePadSetMotionSensorState`, as a gyro game would), and streams
+each 120-byte `ScePadData` as hex on TCP 9041 (`stop\n` exits). The screen shows
+one box per button bit, the touchpad with its points, and bars for the sticks,
+triggers, acceleration, gyro and orientation.
+
+Procedure used on 13.60 (no FTP service was running):
+
+1. Build: `PAD_TESTER_BUILD_DIR=<dir> tools/ps5-probes/build-pad-tester.sh`.
+2. Start websrv (8080) by sending its ELF to the loader on 9021.
+3. Send `fs_stage.elf` (built with prospero-clang, `-lkernel`) to 9021. It accepts
+   `MKDIR`, `PUT`, `COPY`, `RM`, `RMDIR` and `QUIT` on TCP 9042, always with exclusive
+   creates. Upload `/data/homebrew/SunshinePadTester/eboot.elf` and compare it with
+   websrv's `/fs` read-back.
+4. With no game running, launch it with
+   `GET :8080/hbldr?path=/data/homebrew/SunshinePadTester/eboot.elf&pipe=1&daemon=0&cwd=/data/homebrew/SunshinePadTester`.
+   hbldr creates `/system_ex/app/FAKE00000` if it is missing, remounting
+   `/system_ex` read-write when needed (owner-approved).
+5. `python3 tools/ps5-probes/pad_tester_read.py 20 out.txt` while the test client
+   drives the host's virtual pad.
+
+Results on 13.60 through SunshinePS5's `/dev/hid` virtual pad, as a game reads
+them:
+
+- Buttons: Cross, Circle, Square, Triangle, D-pad, L1/R1, L2/R2 (with analogue
+  values), L3/R3, Options, Create and touchpad click all arrive as the standard
+  `ScePadData` bits. Create opens the system Create menu, after which reads report
+  `0x80000000` (intercepted).
+- Sticks keep their polarity, with Moonlight's Y-up becoming 0 at the top. Touch
+  points scale to 1920x1080, including moves and a second finger.
+- Acceleration arrives in g and angular velocity in rad/s. Both are populated only
+  after the reading app enables the motion sensor.
+
