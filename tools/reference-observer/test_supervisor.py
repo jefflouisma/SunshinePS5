@@ -370,7 +370,10 @@ class AttachmentSupervisorTests(unittest.TestCase):
                 value = attachment_value()
                 # Wolf may create devices only after RTSP/controller arrival.
                 value["devices"] = []
-                (self.root / "observer-launch.json").write_bytes(
+                # The polling observer must never see a created-but-unwritten
+                # marker; like the runner, publish it atomically.
+                temporary = self.root / "launch.pending"
+                temporary.write_bytes(
                     encoded(
                         {
                             "schema_version": "1.0.0",
@@ -380,6 +383,7 @@ class AttachmentSupervisorTests(unittest.TestCase):
                         }
                     )
                 )
+                temporary.rename(self.root / "observer-launch.json")
                 (self.root / "source.json").write_bytes(b"{}")
                 temporary = self.root / "runtime.pending"
                 temporary.write_bytes(encoded(value))
