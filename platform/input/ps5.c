@@ -135,6 +135,14 @@ static uint8_t stick_byte(int16_t axis)
     return (uint8_t)(((int32_t)axis + INT32_C(32768)) >> 8);
 }
 
+/* Moonlight sends stick Y with up positive (XInput convention); the console
+ * report has 0 at the top. Centre stays 0x80, matching report_neutral. */
+static uint8_t stick_byte_y(int16_t axis)
+{
+    int32_t value = (INT32_C(32768) - (int32_t)axis) >> 8;
+    return (uint8_t)(value > 255 ? 255 : value);
+}
+
 static uint8_t trigger_byte(uint16_t trigger)
 {
     return (uint8_t)(trigger >> 8);
@@ -161,9 +169,9 @@ static bool report_state(const sp5_controller_state *state, sp5_ps5_neutral_repo
     for (size_t index = 0; index < 4; ++index)
         report->bytes[REPORT_BUTTONS + index] = (uint8_t)(buttons >> (8U * index));
     report->bytes[REPORT_LEFT_X] = stick_byte(state->axes[0]);
-    report->bytes[REPORT_LEFT_Y] = stick_byte(state->axes[1]);
+    report->bytes[REPORT_LEFT_Y] = stick_byte_y(state->axes[1]);
     report->bytes[REPORT_RIGHT_X] = stick_byte(state->axes[2]);
-    report->bytes[REPORT_RIGHT_Y] = stick_byte(state->axes[3]);
+    report->bytes[REPORT_RIGHT_Y] = stick_byte_y(state->axes[3]);
     report->bytes[REPORT_LEFT_TRIGGER] = trigger_byte(state->triggers[0]);
     report->bytes[REPORT_RIGHT_TRIGGER] = trigger_byte(state->triggers[1]);
     return true;
