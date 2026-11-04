@@ -16,7 +16,7 @@ console, stream its screen and audio, and drive it with a controller.
 | Client | Official **Moonlight for macOS 6.1.0** (other official Moonlight clients are untested) |
 | Video | **SDR H.264 at 1920×1080 or 1280×720, 60 or 30 fps**, hardware-encoded on the console; up to 50 Mbit/s at 1080p60, 20 Mbit/s at 1080p30 and 720p60, 14 Mbit/s at 720p30 |
 | Audio | 48 kHz stereo Opus |
-| Input | **One** controller (gamepad buttons, sticks, triggers) |
+| Input | **One** controller: all buttons including PS, Create and touchpad click, sticks, analogue triggers, **touchpad touches** (two fingers) and **motion** (gyro, accelerometer and orientation) when the client sends them |
 | Pairing | Standard Moonlight PIN pairing, completed in the host's built-in web page |
 | Network | Private IPv4 networks only (10/8, 172.16/12, 192.168/16); public peers are refused |
 
@@ -92,8 +92,16 @@ These are deliberate MVP boundaries, not bugs:
 - **SDR only.** HDR is not advertised. If the console outputs HDR, set it to SDR for the best
   picture.
 - **One controller.** Connect a single controller to Moonlight; multiple controllers are not
-  supported in this release. Rumble, motion and touchpad are not supported. Keyboard and mouse
-  input from Moonlight are not forwarded; a gamepad is required to control the console.
+  supported in this release. **Rumble, adaptive triggers, the lightbar and battery level are not
+  supported** (rumble and adaptive triggers are planned). Touchpad and motion need a client
+  that sends them: Moonlight on Android 12 or newer, or Apple TV / iOS 14 or newer, with a
+  PlayStation controller. Keyboard and mouse input from Moonlight are not forwarded; a gamepad is
+  required to control the console.
+- **Controller assignment.** When a game starts it may show *"Wireless controller not detected"*;
+  press Cross to continue. The first time the host's controller presses a button, the console
+  may ask *"Who's using this controller?"*. Pick your user. If you also use a physical
+  controller on the console, the game may stay with that one. Pick your user again on the
+  prompt, or turn the physical controller off.
 - **One validated game title.** Streaming the system UI and one game (God of War Ragnarök) was
   tested; other titles are expected to work but are untested.
 - **Protected content is not detected.** The console API used here exposes no capture-protection
