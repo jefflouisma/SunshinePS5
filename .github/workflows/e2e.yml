@@ -48,6 +48,7 @@ jobs:
         run: |
           mkdir "$TMPDIR/opus-source"
           curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 6 --retry-delay 20 --retry-all-errors --connect-timeout 30 \
             https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz \
             -o "$TMPDIR/opus-source/opus-1.5.2.tar.gz"
           python - "$TMPDIR/opus-source" <<'PY'

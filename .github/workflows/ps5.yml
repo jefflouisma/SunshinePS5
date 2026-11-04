@@ -73,6 +73,7 @@ jobs:
           archive="$source_root/openssl-3.5.9.tar.gz"
           mkdir -p "$source_root"
           curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 6 --retry-delay 20 --retry-all-errors --connect-timeout 30 \
             "$PS5_OPENSSL_URL" -o "$archive"
           echo "$PS5_OPENSSL_SHA256  $archive" | sha256sum --check --strict
           peeled=$(git ls-remote --tags https://github.com/openssl/openssl \
