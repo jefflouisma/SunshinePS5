@@ -9,8 +9,10 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Exact sourced UserService declarations from tools/ps5-probes/input_system.c:
@@ -233,6 +235,67 @@ static int submit_report(const sp5_ps5_input *input, int32_t handle,
         .output = NULL,
     };
     return ioctl(input->hid, SP5_PS5_HID_REPORT, &request);
+}
+
+/* Mahony-style fusion: integrate body angular velocity into the orientation
+ * and steer it toward the accelerometer's gravity direction, so tilt-reading
+ * games see a stable attitude. At rest the reference frame has +Y up (the
+ * accelerometer reads +1 g on Y, as observed through ScePadData). */
+static void update_orientation(sp5_ps5_input_controller *slot, const sp5_controller_state *state,
+                               uint64_t session_id)
+{
+    if (slot->motion_session != session_id) {
+        slot->motion_session = session_id;
+        slot->orientation[0] = slot->orientation[1] = slot->orientation[2] = 0.0f;
+        slot->orientation[3] = 1.0f;
+        slot->has_gravity = false;
+        slot->last_gyro_us = 0;
+    }
+    float a[3] = {state->acceleration[0], state->acceleration[1], state->acceleration[2]};
+    float norm = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (norm > 1.0f) { /* m/s^2; ignore free fall and absent samples */
+        for (int i = 0; i < 3; ++i)
+            slot->gravity[i] = a[i] / norm;
+        slot->has_gravity = true;
+    }
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return;
+    uint64_t now_us = (uint64_t)now.tv_sec * 1000000U + (uint64_t)now.tv_nsec / 1000U;
+    /* Every report integrates the latest rate over the time since the last
+     * one, so accelerometer, gyro and button events all advance it evenly. */
+    float g[3] = {state->gyro[0], state->gyro[1], state->gyro[2]};
+    float dt = slot->last_gyro_us == 0 ? 0.01f : (float)(now_us - slot->last_gyro_us) / 1e6f;
+    if (dt > 0.1f)
+        dt = 0.1f; /* a gap is not a long rotation */
+    slot->last_gyro_us = now_us;
+    float *q = slot->orientation; /* x, y, z, w */
+    if (slot->has_gravity) {
+        /* Estimated "up" in the body frame: second row of R(q). */
+        float v[3] = {2.0f * (q[0] * q[1] + q[3] * q[2]), 1.0f - 2.0f * (q[0] * q[0] + q[2] * q[2]),
+                      2.0f * (q[1] * q[2] - q[3] * q[0])};
+        const float *m = slot->gravity;
+        const float kp = 0.5f;
+        g[0] += kp * (m[1] * v[2] - m[2] * v[1]);
+        g[1] += kp * (m[2] * v[0] - m[0] * v[2]);
+        g[2] += kp * (m[0] * v[1] - m[1] * v[0]);
+    }
+    float dx = 0.5f * (q[3] * g[0] + q[1] * g[2] - q[2] * g[1]);
+    float dy = 0.5f * (q[3] * g[1] - q[0] * g[2] + q[2] * g[0]);
+    float dz = 0.5f * (q[3] * g[2] + q[0] * g[1] - q[1] * g[0]);
+    float dw = -0.5f * (q[0] * g[0] + q[1] * g[1] + q[2] * g[2]);
+    q[0] += dx * dt;
+    q[1] += dy * dt;
+    q[2] += dz * dt;
+    q[3] += dw * dt;
+    float length = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (!(length > 0.0f)) {
+        q[0] = q[1] = q[2] = 0.0f;
+        q[3] = 1.0f;
+        return;
+    }
+    for (int i = 0; i < 4; ++i)
+        q[i] /= length;
 }
 
 static sp5_ps5_input *active_context;
@@ -463,12 +526,16 @@ static sp5_result input_deliver(void *context, const sp5_controller_state *state
         return failure(SP5_REASON_INVALID_ARGUMENT);
     if (evidence->controller_id >= SP5_PS5_INPUT_HID_MAX)
         return failed_evidence(evidence, SP5_REASON_INVALID_ARGUMENT);
-    const sp5_ps5_input_controller *slot = &input->controllers[evidence->controller_id];
+    sp5_ps5_input_controller *slot = &input->controllers[evidence->controller_id];
     if (!slot->live || slot->session_id != evidence->session_id)
         return failed_evidence(evidence, SP5_REASON_OWNERSHIP);
     sp5_ps5_neutral_report report;
     if (!report_state(state, &report))
         return failed_evidence(evidence, SP5_REASON_UNSUPPORTED);
+    if (state->has_motion) {
+        update_orientation(slot, state, evidence->session_id);
+        memcpy(report.bytes + REPORT_ORIENTATION_X, slot->orientation, sizeof(slot->orientation));
+    }
     evidence->delivery_attempted = true;
     if (submit_report(input, slot->handle, &report) != 0) {
         ++input->failed_reports;

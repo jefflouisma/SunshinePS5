@@ -102,6 +102,14 @@ typedef struct {
     int32_t handle;
     uint64_t session_id;
     bool live;
+    /* Orientation estimate for the report (a virtual pad gets no console
+     * sensor fusion): quaternion x, y, z, w, last gravity direction from the
+     * accelerometer, and the previous gyro sample time. */
+    uint64_t motion_session;
+    float orientation[4];
+    float gravity[3];
+    bool has_gravity;
+    uint64_t last_gyro_us;
 } sp5_ps5_input_controller;
 
 typedef struct {
