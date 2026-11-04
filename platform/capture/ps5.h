@@ -188,6 +188,10 @@ typedef struct {
     /* Raw Avcap2 read status and record size of the last failed acquire, for
      * diagnostics (a console video-mode change fails reads, e.g. on game launch). */
     int32_t last_read_status;
+    /* Step capture_close_state is in (diagnostics for a close that blocks):
+     * 1 Stop, 2 Close, 3 resource STOP, 4 unregister, 5 selector query,
+     * 6 media global release, 0 done. */
+    volatile int close_step;
     uint32_t last_read_size;
     bool leased;
     sp5_reason cleanup_failure;

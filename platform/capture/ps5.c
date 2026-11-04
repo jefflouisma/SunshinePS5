@@ -317,6 +317,7 @@ static sp5_result capture_close_state(sp5_ps5_capture *capture)
     bool local_ok = !capture->failed_open_unproven;
     capture->failed_open_unproven = false;
     if (capture->started) {
+        capture->close_step = 1;
         int rc = capture->api.stop(capture->handle);
         /* Probe behavior: Close still follows and Stop is not retried after a
          * failure; the sticky cleanup gate preserves the failure. */
@@ -329,6 +330,7 @@ static sp5_result capture_close_state(sp5_ps5_capture *capture)
         }
     }
     if (capture->opened) {
+        capture->close_step = 2;
         int rc = capture->api.close(capture->handle);
         /* Probe behavior: the returned handle is dropped even on close failure. */
         capture->opened = false;
@@ -342,6 +344,7 @@ static sp5_result capture_close_state(sp5_ps5_capture *capture)
         }
     }
     if (capture->requested) {
+        capture->close_step = 3;
         int rc = capture->resource.request_state(SP5_PS5_CAPTURE_RESOURCE_ID, "STOP", capture,
                                                  (int32_t)getpid());
         capture->requested = false;
@@ -353,6 +356,7 @@ static sp5_result capture_close_state(sp5_ps5_capture *capture)
         }
     }
     if (capture->registered) {
+        capture->close_step = 4;
         int rc = capture->resource.unregister_client(SP5_PS5_CAPTURE_RESOURCE_ID);
         capture->registered = false;
         if (rc == 0)
@@ -367,6 +371,7 @@ static sp5_result capture_close_state(sp5_ps5_capture *capture)
     if (local_ok && capture->unregistered && !capture->selector_removed) {
         bool available = true;
         bool queried = false;
+        capture->close_step = 5;
         for (unsigned attempt = 0; attempt < SP5_PS5_CAPTURE_CLEANUP_QUERIES; ++attempt) {
             queried = resource_query(capture, &available);
             if (!queried || !available) {
@@ -387,6 +392,7 @@ static sp5_result capture_close_state(sp5_ps5_capture *capture)
     if (!local_ok)
         capture->cleanup_gate_failed = true;
     if (capture->global_acquired) {
+        capture->close_step = 6;
         sp5_ps5_media_global_note_cleanup(local_ok);
         sp5_result released = sp5_ps5_media_global_release();
         if (released.status != SP5_OK) {
@@ -399,6 +405,7 @@ static sp5_result capture_close_state(sp5_ps5_capture *capture)
             capture->global_acquired = false;
         }
     }
+    capture->close_step = 0;
     if (first.status == SP5_OK && !capture->global_acquired) {
         capture->closed = true;
         capture->cleanup_failure = SP5_REASON_NONE;

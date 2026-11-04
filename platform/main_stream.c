@@ -96,7 +96,10 @@ enum {
     PLAY_DEADLINE_US = 30000000,
     KEYFRAME_RESTART_INTERVAL_US = 1000000,
     WATCHDOG_STALL_US = 3000000,
+    TEARDOWN_US = 8000000,
     KEYFRAME_WAIT_RECORDS = 30,
+    MOTION_RATE_HZ = 100,
+    INPUT_LOG_PER_SECOND = 30,
     SOURCE_RETRY_US = 250000,
     WORKER_EXIT_US = 3000000,
     SOURCE_RECOVERY_US = 15000000,
@@ -167,7 +170,12 @@ typedef enum {
     STAGE_MAIN_HEARTBEAT,
     STAGE_MAIN_WEB,
     STAGE_MAIN_TAKEOVER,
-    STAGE_MAIN_ADDRESS
+    STAGE_MAIN_ADDRESS,
+    STAGE_TEARDOWN_INPUT_RELEASE,
+    STAGE_TEARDOWN_AUDIO_CLOSE,
+    STAGE_TEARDOWN_ENCODER_CLOSE,
+    STAGE_TEARDOWN_CAPTURE_CLOSE,
+    STAGE_TEARDOWN_SYSTEM_ROLLBACK
 } thread_stage;
 
 static const char *stage_name(int stage)
@@ -192,7 +200,12 @@ static const char *stage_name(int stage)
                                         "main_heartbeat",
                                         "main_web",
                                         "main_takeover",
-                                        "main_address"};
+                                        "main_address",
+                                        "input_release",
+                                        "audio_close",
+                                        "encoder_close",
+                                        "capture_close",
+                                        "system_rollback"};
     return stage >= 0 && stage < (int)(sizeof(names) / sizeof(names[0])) ? names[stage] : "unknown";
 }
 
@@ -266,10 +279,20 @@ typedef struct {
     /* Set by the input owner when Moonlight asks for an IDR (0x0302) or
      * reports lost reference frames (0x0301); served by the video owner. */
     atomic_bool keyframe_requested;
+    bool motion_requested; /* 0x5501 sent for this session's controller */
+    uint64_t input_log_window_us;
+    unsigned input_log_count, input_log_skipped;
     uint64_t keyframe_restart_us;
     /* Console call each media owner is inside (media_stage), for diagnosing a
      * worker that does not exit at teardown. */
-    atomic_int video_stage, audio_stage, input_stage, main_stage;
+    atomic_int video_stage, audio_stage, input_stage, main_stage, teardown_stage;
+    /* Session teardown (stop_input + lifecycle_end) runs on a helper thread
+     * so a console close that never returns cannot hang the main loop. */
+    struct {
+        sp5_end_reason reason;
+        sp5_result ended;
+        atomic_bool done;
+    } teardown;
     atomic_bool input_done;
     _Atomic uint64_t main_beat_us; /* last main-loop iteration, for the watchdog */
     pthread_t watchdog_thread;
@@ -1132,6 +1155,23 @@ static void *input_owner(void *context)
         atomic_store(&h->input_stage, STAGE_INPUT_TRANSPORT);
         sp5_result step = sp5_control_transport_step(h->transport, now_us());
         atomic_store(&h->input_stage, STAGE_IDLE);
+        if (!h->motion_requested && step.status == SP5_OK) {
+            /* Ask the client for accelerometer and gyro reports of the first
+             * controller; clients without sensors ignore it. Payload: u16
+             * controller, u16 rate Hz, u8 type (1 accel, 2 gyro), LE. */
+            bool sent = true;
+            for (uint8_t type = 1; type <= 2; ++type) {
+                const uint8_t request[5] = {0, 0, MOTION_RATE_HZ & 0xff, MOTION_RATE_HZ >> 8, type};
+                sent = sent &&
+                       sp5_control_send(h->control, 0x5501, (sp5_bytes){request, sizeof(request)})
+                               .status == SP5_OK;
+            }
+            h->motion_requested = sent;
+            if (sent)
+                (void)emit("{\"event\":\"motion_requested\",\"synthetic\":false,"
+                           "\"diagnostic\":true,\"rate_hz\":%d}\n",
+                           MOTION_RATE_HZ);
+        }
         if (step.status != SP5_OK && !atomic_load_explicit(&h->stopped, memory_order_acquire)) {
             h->worker_error = step.reason;
             (void)media_fail("control_step", (int)step.reason);
@@ -1169,12 +1209,26 @@ static void *input_owner(void *context)
                     (void)sp5_control_end(h->control, SP5_END_ERROR);
                     break;
                 }
-                (void)emit("{\"event\":\"input\",\"synthetic\":false,\"diagnostic\":true,"
-                           "\"event_id\":%llu,\"type\":%u,\"controller\":%u,"
-                           "\"attempted\":%s,\"delivery\":%u,\"reason\":%u}\n",
-                           (unsigned long long)event_id, event.type, evidence.controller_id,
-                           evidence.delivery_attempted ? "true" : "false",
-                           (unsigned)evidence.delivery, (unsigned)evidence.reason);
+                /* Motion arrives at up to MOTION_RATE_HZ: log a bounded sample. */
+                uint64_t log_now = now_us();
+                if (log_now - h->input_log_window_us >= 1000000) {
+                    if (h->input_log_skipped != 0)
+                        (void)emit("{\"event\":\"input_log_skipped\",\"synthetic\":false,"
+                                   "\"diagnostic\":true,\"count\":%u}\n",
+                                   h->input_log_skipped);
+                    h->input_log_window_us = log_now;
+                    h->input_log_count = 0;
+                    h->input_log_skipped = 0;
+                }
+                if (h->input_log_count++ < INPUT_LOG_PER_SECOND)
+                    (void)emit("{\"event\":\"input\",\"synthetic\":false,\"diagnostic\":true,"
+                               "\"event_id\":%llu,\"type\":%u,\"controller\":%u,"
+                               "\"attempted\":%s,\"delivery\":%u,\"reason\":%u}\n",
+                               (unsigned long long)event_id, event.type, evidence.controller_id,
+                               evidence.delivery_attempted ? "true" : "false",
+                               (unsigned)evidence.delivery, (unsigned)evidence.reason);
+                else
+                    ++h->input_log_skipped;
                 if (h->client_session_id[0] != 0 && !h->host_observations_overflow) {
                     uint64_t observed = evidence.host_received.ticks;
                     int written = snprintf(
@@ -1240,6 +1294,56 @@ static void *metrics_owner(void *context)
 
 static int clean_session(stream_host *h);
 
+/* Console close calls run through these wrappers so the watchdog and
+ * teardown_stuck can name the one that does not return. One host per process. */
+static stream_host *traced_host;
+static sp5_lifecycle_ops traced_real;
+
+static sp5_result traced(int stage, sp5_result (*call)(void *), void *context)
+{
+    atomic_store(&traced_host->teardown_stage, stage);
+    sp5_result result = call(context);
+    atomic_store(&traced_host->teardown_stage, STAGE_IDLE);
+    return result;
+}
+
+static sp5_result traced_audio_close(void *c)
+{
+    return traced(STAGE_TEARDOWN_AUDIO_CLOSE, traced_real.audio.close, c);
+}
+
+static sp5_result traced_encoder_close(void *c)
+{
+    return traced(STAGE_TEARDOWN_ENCODER_CLOSE, traced_real.encoder.close, c);
+}
+
+static sp5_result traced_capture_close(void *c)
+{
+    return traced(STAGE_TEARDOWN_CAPTURE_CLOSE, traced_real.capture.close, c);
+}
+
+static sp5_result traced_system_rollback(void *c)
+{
+    return traced(STAGE_TEARDOWN_SYSTEM_ROLLBACK, traced_real.system.rollback, c);
+}
+
+static sp5_result traced_release_all(void *c, uint64_t session_id)
+{
+    atomic_store(&traced_host->teardown_stage, STAGE_TEARDOWN_INPUT_RELEASE);
+    sp5_result result = traced_real.input.release_all(c, session_id);
+    atomic_store(&traced_host->teardown_stage, STAGE_IDLE);
+    return result;
+}
+
+static void *teardown_owner(void *context)
+{
+    stream_host *h = context;
+    (void)sp5_lifecycle_stop_input(h->lifecycle, h->teardown.reason);
+    h->teardown.ended = sp5_lifecycle_end(h->lifecycle, h->teardown.reason);
+    atomic_store_explicit(&h->teardown.done, true, memory_order_release);
+    return NULL;
+}
+
 static int session_fail(stream_host *h, const char *stage, sp5_result result)
 {
     (void)emit("{\"event\":\"session_error\",\"synthetic\":false,\"diagnostic\":true,"
@@ -1266,6 +1370,13 @@ static int start_session(stream_host *h)
                              sp5_ps5_encoder_operations(&h->encoder),
                              sp5_ps5_audio_ops(&h->audio_adapter),
                              sp5_ps5_input_ops(&h->input_adapter), sp5_ps5_system_ops(&h->system)};
+    traced_host = h;
+    traced_real = ops;
+    ops.audio.close = traced_audio_close;
+    ops.encoder.close = traced_encoder_close;
+    ops.capture.close = traced_capture_close;
+    ops.system.rollback = traced_system_rollback;
+    ops.input.release_all = traced_release_all;
     h->lifecycle = sp5_lifecycle_create(view.id, &ops);
     h->lifecycle_started_us = now_us();
     if (h->lifecycle == NULL)
@@ -1396,6 +1507,7 @@ static int play(stream_host *h)
     atomic_store(&h->end_request, -1);
     atomic_store(&h->keyframe_requested, false); /* the new stream starts with an IDR */
     atomic_store(&h->input_done, false);
+    h->motion_requested = false;
     h->keyframe_wait = 0;
     h->source_recovering = false;
     h->video_timing_frames = h->video_key_frames = 0;
@@ -1850,10 +1962,32 @@ static int clean_session(stream_host *h)
     sp5_end_reason reason = view.has_end_reason ? view.end_reason : SP5_END_ERROR;
     /* All producers are joined. Invalidate admission/neutralize controllers
      * before ending media, even when the input owner did not take this path. */
-    atomic_store(&h->main_stage, STAGE_MAIN_STOP_INPUT);
-    (void)sp5_lifecycle_stop_input(h->lifecycle, reason);
     atomic_store(&h->main_stage, STAGE_MAIN_LIFECYCLE_END);
-    sp5_result ended = sp5_lifecycle_end(h->lifecycle, reason);
+    h->teardown.reason = reason;
+    h->teardown.ended = sp5_failure(SP5_REASON_TIMEOUT);
+    atomic_store(&h->teardown.done, false);
+    pthread_t teardown;
+    if (pthread_create(&teardown, NULL, teardown_owner, h) != 0) {
+        (void)teardown_owner(h); /* no thread available: tear down inline */
+    } else {
+        uint64_t deadline = now_us() + TEARDOWN_US;
+        while (!atomic_load_explicit(&h->teardown.done, memory_order_acquire) &&
+               now_us() < deadline)
+            pause_step();
+        if (!atomic_load_explicit(&h->teardown.done, memory_order_acquire)) {
+            /* A console close never returned. Leave its state alone (the
+             * helper may still finish), refuse sessions, keep takeover. */
+            (void)pthread_detach(teardown);
+            h->media_wedged = true;
+            atomic_store(&h->main_stage, STAGE_IDLE);
+            (void)emit("{\"event\":\"teardown_stuck\",\"synthetic\":false,\"diagnostic\":true,"
+                       "\"stage\":\"%s\",\"capture_close_step\":%d}\n",
+                       stage_name(atomic_load(&h->teardown_stage)), h->capture.close_step);
+            return 1;
+        }
+        REQUIRE(pthread_join(teardown, NULL) == 0);
+    }
+    sp5_result ended = h->teardown.ended;
     atomic_store(&h->main_stage, STAGE_IDLE);
     sp5_control_transport_close(h->transport);
     h->transport = NULL;
@@ -2283,7 +2417,9 @@ static int start_stream(stream_host *h)
     };
     h->host.supported_mode_count = sizeof(modes) / sizeof(modes[0]);
     memcpy(h->host.supported_modes, modes, sizeof(modes));
-    h->host.controller_touch_events = false;
+    /* Controller touchpad and motion events (LI_FF_CONTROLLER_TOUCH_EVENTS)
+     * map onto the virtual pad report (platform/input/ps5.c). */
+    h->host.controller_touch_events = true;
     h->host.encryption_supported = 5;
     if (sp5_host_transition(&h->host, SP5_HOST_RUNNING).status != SP5_OK) {
         (void)fputs("could not start the host\n", stderr);
@@ -2485,11 +2621,12 @@ static void *watchdog_owner(void *context)
             (void)emit(
                 "{\"event\":\"stall\",\"synthetic\":false,\"diagnostic\":true,"
                 "\"main_ms\":%llu,\"main\":\"%s\",\"input\":\"%s\",\"video\":\"%s\","
-                "\"audio\":\"%s\",\"input_done\":%s,\"video_done\":%s,"
-                "\"audio_done\":%s}\n",
+                "\"audio\":\"%s\",\"teardown\":\"%s\",\"capture_close_step\":%d,"
+                "\"input_done\":%s,\"video_done\":%s,\"audio_done\":%s}\n",
                 (unsigned long long)((now - beat) / 1000), stage_name(atomic_load(&h->main_stage)),
                 stage_name(atomic_load(&h->input_stage)), stage_name(atomic_load(&h->video_stage)),
                 stage_name(atomic_load(&h->audio_stage)),
+                stage_name(atomic_load(&h->teardown_stage)), h->capture.close_step,
                 atomic_load(&h->input_done) ? "true" : "false",
                 atomic_load(&h->media_done) ? "true" : "false",
                 atomic_load(&h->audio_done) ? "true" : "false");
@@ -2556,6 +2693,8 @@ int main(int argc, char **argv)
     atomic_init(&h->audio_stage, STAGE_IDLE);
     atomic_init(&h->input_stage, STAGE_IDLE);
     atomic_init(&h->main_stage, STAGE_IDLE);
+    atomic_init(&h->teardown_stage, STAGE_IDLE);
+    atomic_init(&h->teardown.done, true);
     atomic_init(&h->input_done, true);
     atomic_init(&h->main_beat_us, 0);
     sp5_ps5_capture_init(&h->capture);
