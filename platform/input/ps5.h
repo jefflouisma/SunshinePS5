@@ -45,9 +45,10 @@
  *   stick clicks, proportional sticks/triggers, rumble, motion and touch
  *   remain unverified.
  * - Sticks are 16-bit signed -> one byte (0x80 centre); L2/R2 16-bit -> one
- *   byte plus their digital bits. Motion/touch are a capability gate: deliver()
- *   returns SP5_REASON_UNSUPPORTED when either is present because no sourced
- *   coordinate/unit mapping exists. They are never silently dropped.
+ *   byte plus their digital bits. Up to two touch points (normalized ->
+ *   1920x1080) and gyro (rad/s) / acceleration (m/s^2 -> g) go to the report
+ *   fields libScePad's scePadVirtualDeviceInsertData uses on 13.60
+ *   (disassembled); the orientation stays the identity quaternion.
  * - Rumble feedback has no sourced virtual-controller output report;
  *   poll_feedback returns STAGE_UNAVAILABLE explicitly.
  *

@@ -47,7 +47,18 @@ enum {
     REPORT_LEFT_TRIGGER = 0x14,
     REPORT_RIGHT_TRIGGER = 0x15,
     REPORT_FLAGS = 0x17,
-    REPORT_ORIENTATION = 0x84
+    /* Touch and motion layout as written by libScePad's
+     * scePadVirtualDeviceInsertData on 13.60 (disassembled from the mapped
+     * library, tools/ps5-probes/module_dump.c): ScePadData touch count,
+     * per-finger id and u16 x/y, and the orientation/gyro/accel floats. */
+    REPORT_TOUCH_COUNT = 0x1c,
+    REPORT_TOUCH = 0x20, /* 8 bytes per finger: id, 3 pad, u16 x, u16 y */
+    REPORT_ORIENTATION_X = 0x78,
+    REPORT_ORIENTATION = 0x84, /* quaternion w */
+    REPORT_GYRO = 0x88,        /* x, y, z rad/s */
+    REPORT_ACCEL = 0x94,       /* x, y, z in g */
+    TOUCH_WIDTH = 1920,        /* DualSense touchpad resolution */
+    TOUCH_HEIGHT = 1080
 };
 
 enum {
@@ -174,6 +185,32 @@ static bool report_state(const sp5_controller_state *state, sp5_ps5_neutral_repo
     report->bytes[REPORT_RIGHT_Y] = stick_byte_y(state->axes[3]);
     report->bytes[REPORT_LEFT_TRIGGER] = trigger_byte(state->triggers[0]);
     report->bytes[REPORT_RIGHT_TRIGGER] = trigger_byte(state->triggers[1]);
+    if (state->has_touch) {
+        uint8_t count = 0;
+        for (size_t index = 0; index < SP5_MAX_TOUCHES && count < 2; ++index) {
+            const sp5_touch *touch = &state->touches[index];
+            if (!touch->active)
+                continue;
+            uint8_t *finger = report->bytes + REPORT_TOUCH + 8U * count;
+            uint16_t x = (uint16_t)(touch->x * (float)(TOUCH_WIDTH - 1) + 0.5f);
+            uint16_t y = (uint16_t)(touch->y * (float)(TOUCH_HEIGHT - 1) + 0.5f);
+            finger[0] = (uint8_t)(touch->contact_id & 0x7fU);
+            memcpy(finger + 4, &x, sizeof(x));
+            memcpy(finger + 6, &y, sizeof(y));
+            ++count;
+        }
+        report->bytes[REPORT_TOUCH_COUNT] = count;
+    }
+    if (state->has_motion) {
+        /* Moonlight motion uses SDL axes, which match the DualSense: gyro is
+         * already rad/s in the portable state, acceleration is m/s^2. */
+        for (size_t axis = 0; axis < 3; ++axis) {
+            float gyro = state->gyro[axis];
+            float accel = state->acceleration[axis] / 9.80665f;
+            memcpy(report->bytes + REPORT_GYRO + 4U * axis, &gyro, sizeof(gyro));
+            memcpy(report->bytes + REPORT_ACCEL + 4U * axis, &accel, sizeof(accel));
+        }
+    }
     return true;
 }
 
@@ -429,9 +466,6 @@ static sp5_result input_deliver(void *context, const sp5_controller_state *state
     const sp5_ps5_input_controller *slot = &input->controllers[evidence->controller_id];
     if (!slot->live || slot->session_id != evidence->session_id)
         return failed_evidence(evidence, SP5_REASON_OWNERSHIP);
-    /* M6 capability gate: no sourced motion units/touch coordinates exist. */
-    if (state->has_motion || state->has_touch)
-        return failed_evidence(evidence, SP5_REASON_UNSUPPORTED);
     sp5_ps5_neutral_report report;
     if (!report_state(state, &report))
         return failed_evidence(evidence, SP5_REASON_UNSUPPORTED);
