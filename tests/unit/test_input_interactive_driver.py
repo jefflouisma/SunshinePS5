@@ -249,8 +249,12 @@ def test_timeout_output_quota_and_existing_output(tmp_path):
         async def read(self, size):
             await asyncio.sleep(10)
 
-    result, transport, capture, _ = execute(tmp_path, Stalled(), total_seconds=0.02)
-    assert "TimeoutError" in result["error"] and transport.closed and capture.closed
+    # Long enough to reach the stalled read on a slow runner; the read never returns.
+    result, transport, capture, launches = execute(
+        tmp_path, Stalled(), total_seconds=0.5
+    )
+    assert "TimeoutError" in result["error"] and len(launches) == 1
+    assert transport.closed and capture.closed
     with pytest.raises(FileExistsError):
         execute(tmp_path)
     result, transport, _, _ = execute(tmp_path / "quota", output_limit=1)
