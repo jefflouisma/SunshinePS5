@@ -14,7 +14,7 @@ console, stream its screen and audio, and drive it with a controller.
 |---|---|
 | Console | PS5 on firmware **13.60**, jailbroken, with a payload loader on port 9021 |
 | Client | Official **Moonlight for macOS 6.1.0** (other official Moonlight clients are untested) |
-| Video | **SDR 1920×1080 H.264 at up to 60 fps**, hardware-encoded on the console, 1–50 Mbit/s |
+| Video | **SDR H.264 at 1920×1080 or 1280×720, 60 or 30 fps**, hardware-encoded on the console; up to 50 Mbit/s at 1080p60, 20 Mbit/s at 1080p30 and 720p60, 14 Mbit/s at 720p30 |
 | Audio | 48 kHz stereo Opus |
 | Input | **One** controller (gamepad buttons, sticks, triggers) |
 | Pairing | Standard Moonlight PIN pairing, completed in the host's built-in web page |
@@ -78,8 +78,10 @@ host-to-client frame loss and flat memory use.
    (`http://<ps5-address>:8081`), enter the PIN under **Pair a device**, and submit. Moonlight
    completes pairing.
 3. Moonlight lists one app, **PS5**. Select it to start streaming the console.
-4. In Moonlight settings, use **1080p**, **60 FPS**, video codec **H.264** (or Automatic), and keep
-   HDR **off**. Around 20 Mbit/s is a good bitrate on a wired network.
+4. In Moonlight settings, use **1080p** or **720p**, **60** or **30 FPS**, video codec **H.264** (or
+   Automatic), and keep HDR **off**. Other resolutions (4K, 1440p) and frame rates (120 FPS) are
+   refused when the stream starts. Around 20 Mbit/s is a good bitrate for 1080p60 on a wired
+   network; a higher setting is lowered to the mode's limit.
 5. Quit the stream with Moonlight's normal disconnect (on macOS: **Ctrl+Alt+Shift+Q**). The host
    keeps running and is ready for the next session.
 
